@@ -5,6 +5,7 @@ export interface RecipeStep {
   action: StepAction;
   duration: number; // seconds, sequential, integer >= 1
   water: number; // additional grams; zero for non-pour steps
+  flowRate: number | null; // g/s; null = water / duration, non-pour = null
   note: string;
 }
 export interface Recipe {
@@ -35,6 +36,7 @@ export interface TimerSnapshot {
   waterBefore: number;
   waterAfter: number;
   targetWater: number;
+  flowRate: number;
   progress: number;
   completed: boolean;
 }

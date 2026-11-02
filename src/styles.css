@@ -611,9 +611,32 @@ button:disabled {
 
 .brew-readout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr);
   gap: 18px;
   align-items: end;
+}
+
+.water-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.weigh-note {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 5px;
+  align-items: flex-start;
+  margin-top: -6px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgb(240 236 222 / 68%);
+}
+
+.weigh-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .board-label {
@@ -644,21 +667,36 @@ button:disabled {
 }
 
 .water-block {
-  padding: 15px 17px 14px;
-  text-align: right;
+  min-width: 0;
+  padding: 13px 14px 12px;
+  text-align: left;
   background: rgb(255 255 255 / 6%);
   border: 1px solid rgb(255 255 255 / 9%);
   border-radius: 15px;
 }
 
+.water-block-live {
+  background: rgb(224 170 104 / 12%);
+  border-color: rgb(224 170 104 / 34%);
+}
+
 .water-target {
   font-family: "Avenir Next", "Trebuchet MS", sans-serif;
-  font-size: clamp(34px, 4.6vw, 50px);
+  font-size: clamp(30px, 4.2vw, 46px);
   font-weight: 650;
   line-height: 1;
   color: var(--pour);
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
+}
+
+.water-target-final {
+  font-size: clamp(27px, 3.6vw, 40px);
+  color: #fffdf8;
+}
+
+.water-block-live .water-target {
+  color: var(--pour);
 }
 
 .water-target span {
@@ -1360,7 +1398,7 @@ textarea.field-input {
 
 .editor-step-fields {
   display: grid;
-  grid-template-columns: minmax(150px, 1.5fr) minmax(120px, 1fr) 88px 100px;
+  grid-template-columns: minmax(140px, 1.4fr) minmax(112px, 0.9fr) 82px 92px 96px;
   gap: 8px;
 }
 
@@ -1625,26 +1663,34 @@ textarea.field-input {
   }
 
   .brew-readout {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 9px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .water-pair {
+    gap: 8px;
+  }
+
+  .water-block {
+    padding: 11px 12px 10px;
+  }
+
+  .water-target,
+  .water-target-final {
+    font-size: clamp(26px, 8.6vw, 36px);
+  }
+
+  .water-note {
+    font-size: 9.5px;
+  }
+
+  .weigh-note {
+    margin-top: -2px;
+    font-size: 9.5px;
   }
 
   .clock {
     font-size: clamp(43px, 12.8vw, 64px);
-  }
-
-  .water-block {
-    padding: 11px 12px;
-  }
-
-  .water-target {
-    font-size: clamp(31px, 9vw, 43px);
-  }
-
-  .water-note {
-    max-width: 20ch;
-    margin-left: auto;
-    font-size: 9.5px;
   }
 
   .instruction-card {
@@ -1761,11 +1807,6 @@ textarea.field-input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .editor-step-fields .field:nth-child(3),
-  .editor-step-fields .field:nth-child(4) {
-    grid-column: auto;
-  }
-
   .editor-step-note {
     grid-column: 1 / -1;
   }
@@ -1795,21 +1836,12 @@ textarea.field-input {
   }
 
   .water-block {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px 10px;
-    align-items: baseline;
+    display: block;
     text-align: left;
   }
 
   .water-block .board-label {
-    flex-basis: 100%;
-    margin-bottom: 0;
-  }
-
-  .water-note {
-    max-width: none;
-    margin-left: 0;
+    margin-bottom: 3px;
   }
 
   .clock {

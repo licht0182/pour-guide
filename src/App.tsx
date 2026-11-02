@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Scale,
   Timer,
   Trash2,
   Upload,
@@ -22,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Recipe, RecipeStep, StepAction } from './types';
-import { ACTION_LABELS, formatTime, getStepSchedule, totalDuration, totalWater } from './recipe';
+import { ACTION_LABELS, formatTime, getStepFlowRate, getStepSchedule, totalDuration, totalWater } from './recipe';
 import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
@@ -55,10 +56,10 @@ function blankRecipe(): Recipe {
     grind: '중간',
     dripper: 'V60',
     steps: [
-      { id: crypto.randomUUID(), title: '블룸', action: 'pour', duration: 30, water: 30, note: '원두 전체를 적시며 천천히 부어 주세요.' },
-      { id: crypto.randomUUID(), title: '블룸 대기', action: 'wait', duration: 30, water: 0, note: '가스가 빠져나가도록 기다립니다.' },
-      { id: crypto.randomUUID(), title: '본 추출', action: 'pour', duration: 60, water: 180, note: '중심에서 바깥으로 나선을 그리세요.' },
-      { id: crypto.randomUUID(), title: '마무리', action: 'wait', duration: 45, water: 0, note: '드립이 끝날 때까지 기다립니다.' },
+      { id: crypto.randomUUID(), title: '블룸', action: 'pour', duration: 30, water: 30, flowRate: null, note: '원두 전체를 적시며 천천히 부어 주세요.' },
+      { id: crypto.randomUUID(), title: '블룸 대기', action: 'wait', duration: 30, water: 0, flowRate: null, note: '가스가 빠져나가도록 기다립니다.' },
+      { id: crypto.randomUUID(), title: '본 추출', action: 'pour', duration: 60, water: 180, flowRate: null, note: '중심에서 바깥으로 나선을 그리세요.' },
+      { id: crypto.randomUUID(), title: '마무리', action: 'wait', duration: 45, water: 0, flowRate: null, note: '드립이 끝날 때까지 기다립니다.' },
     ],
   };
 }
@@ -66,7 +67,7 @@ function blankRecipe(): Recipe {
 function instructionFor(step: RecipeStep): string {
   switch (step.action) {
     case 'pour':
-      return `${step.duration}초 동안 물 ${step.water}g을 추가로 부으세요.`;
+      return `${step.duration}초 동안 물 ${step.water}g을 ${getStepFlowRate(step).toFixed(2)}g/s로 부으세요.`;
     case 'wait':
       return `${step.duration}초 동안 기다리세요. 드리퍼 안의 물이 천천히 빠져나가도록 두면 됩니다.`;
     case 'swirl':
@@ -104,6 +105,15 @@ function App() {
   const isPaused = brew.status === 'paused';
   const isComplete = brew.status === 'completed';
   const isIdle = brew.status === 'idle';
+  const stepFlowRate = getStepFlowRate(step);
+  const finalStepTarget = isComplete
+    ? waterTotal
+    : isIdle
+      ? (schedule[0]?.waterAfter ?? 0)
+      : brew.snapshot.waterAfter;
+  const liveTarget = isComplete ? waterTotal : brew.snapshot.targetWater;
+  const pouredThisStep = Math.max(0, liveTarget - brew.snapshot.waterBefore);
+  const reachedTarget = step.action === 'pour' && !isComplete && liveTarget >= finalStepTarget;
 
   useEffect(() => {
     if (!hydrated.current) {
@@ -372,15 +382,39 @@ function App() {
                 </p>
                 <p className="clock-total">of {formatTime(duration)}</p>
               </div>
-              <div className="water-block">
-                <p className="board-label">{isIdle ? '첫 단계 목표' : isComplete ? '최종 누적 물량' : '목표 누적 물량'}</p>
-                <p className="water-target">
-                  {Math.round(isIdle && step.action === 'pour' ? schedule[0].waterAfter : brew.snapshot.targetWater)}<span>g</span>
-                </p>
-                <p className="water-note">
-                  {isComplete ? `총 ${waterTotal}g · 천천히 즐기세요` : `${isIdle ? `시작 후 ${step.duration}초 동안` : step.action === 'pour' ? `이번 단계 +${step.water}g` : '이번 단계에서는 붓지 않아요'} · 총 ${waterTotal}g`}
-                </p>
+              <div className="water-pair">
+                <div className="water-block water-block-final">
+                  <p className="board-label">{isComplete ? '최종 누적 물량' : '이번 단계 최종 목표'}</p>
+                  <p className="water-target water-target-final">
+                    {Math.round(finalStepTarget)}<span>g</span>
+                  </p>
+                  <p className="water-note">
+                    {isComplete
+                      ? `총 ${waterTotal}g · 천천히 즐기세요`
+                      : step.action === 'pour'
+                        ? `이번 단계 +${step.water}g을 더하면 여기까지`
+                        : '이번 단계에서는 붓지 않아요'}
+                  </p>
+                </div>
+                <div className="water-block water-block-live">
+                  <p className="board-label">{isComplete ? '완료' : '지금 목표'}</p>
+                  <p className="water-target water-target-live" aria-live="off">
+                    {Math.round(liveTarget)}<span>g</span>
+                  </p>
+                  <p className="water-note">
+                    {isComplete
+                      ? `저울 ${waterTotal}g에서 멈추세요`
+                      : step.action !== 'pour'
+                        ? '붓지 않고 이 무게를 유지하세요'
+                        : reachedTarget
+                          ? `목표 도달 · 유량 ${stepFlowRate.toFixed(2)}g/s`
+                          : `유량 ${stepFlowRate.toFixed(2)}g/s로 부으세요`}
+                  </p>
+                </div>
               </div>
+              <p className="weigh-note">
+                <Scale size={13} aria-hidden="true" /> 추출 시작 전에 저울을 영점으로 맞추세요. 두 숫자 모두 저울의 누적 무게입니다.
+              </p>
             </div>
 
             <div className="step-progress" aria-hidden="true">
@@ -441,8 +475,8 @@ function App() {
                 <div className="instruction-foot">
                   <span className="water-progress">
                     {step.action === 'pour'
-                      ? `${Math.round(step.water * stepProgress)} / ${step.water}g 부음`
-                      : `누적 ${Math.round(brew.snapshot.targetWater)}g 유지`}
+                      ? `${pouredThisStep.toFixed(1)} / ${step.water}g 부음 · ${stepFlowRate.toFixed(2)}g/s`
+                      : `누적 ${Math.round(liveTarget)}g 유지`}
                   </span>
                   {next ? (
                     <span className="next-step">

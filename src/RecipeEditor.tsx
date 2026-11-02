@@ -33,6 +33,7 @@ interface DraftStep {
   action: StepAction;
   duration: string;
   water: string;
+  flowRate: string;
   note: string;
 }
 
@@ -40,6 +41,7 @@ interface StepIssues {
   title: boolean;
   duration: boolean;
   water: boolean;
+  flowRate: boolean;
   note: boolean;
 }
 
@@ -55,6 +57,8 @@ const MIN_TEMPERATURE = 1;
 const MAX_TEMPERATURE = 100;
 const MAX_DURATION = 1800;
 const MAX_WATER = 2000;
+const MIN_FLOW_RATE = 0.1;
+const MAX_FLOW_RATE = 100;
 
 function toNumber(text: string): number {
   return text.trim() === '' ? Number.NaN : Number(text);
@@ -64,13 +68,37 @@ function numberText(value: number): string {
   return Number.isFinite(value) ? String(value) : '';
 }
 
+/** Mirrors recipe.getStepFlowRate so the editor previews the saved value. */
+function draftFlowRate(step: DraftStep): number | null {
+  if (step.flowRate.trim() === '') return null;
+  const explicit = toNumber(step.flowRate);
+  return Number.isFinite(explicit) ? explicit : null;
+}
+
+function effectiveFlowRate(step: DraftStep): number {
+  if (step.action !== 'pour') return 0;
+  const explicit = draftFlowRate(step);
+  if (explicit !== null) return explicit;
+  const duration = toNumber(step.duration);
+  const water = toNumber(step.water);
+  return duration > 0 && Number.isFinite(water) ? water / duration : 0;
+}
+
 function stepIssues(step: DraftStep): StepIssues {
   const duration = toNumber(step.duration);
   const water = toNumber(step.water);
+  const explicit = draftFlowRate(step);
+  const rate = effectiveFlowRate(step);
+  const tooSlow = step.action === 'pour'
+    && Number.isFinite(water) && Number.isInteger(duration) && duration > 0
+    && rate > 0 && rate * duration + 1e-9 < water;
   return {
     title: !step.title.trim() || step.title.length > MAX_TEXT,
     duration: !Number.isInteger(duration) || duration < 1 || duration > MAX_DURATION,
     water: step.action === 'pour' && (!Number.isFinite(water) || water < 0 || water > MAX_WATER),
+    flowRate: step.action === 'pour' && (
+      (explicit !== null && (explicit < MIN_FLOW_RATE || explicit > MAX_FLOW_RATE)) || tooSlow
+    ),
     note: step.note.length > MAX_NOTE,
   };
 }
@@ -126,8 +154,19 @@ function collectMessages(draft: DraftRecipe, steps: DraftStep[]): { messages: st
           : `${label} 추가 물량을 숫자로 입력해 주세요.`,
       );
     }
+    if (issues.flowRate) {
+      const explicit = draftFlowRate(step);
+      const rate = effectiveFlowRate(step);
+      messages.push(
+        explicit !== null && (explicit < MIN_FLOW_RATE || explicit > MAX_FLOW_RATE)
+          ? `${label} 유량은 ${MIN_FLOW_RATE}~${MAX_FLOW_RATE}g/s 사이여야 합니다.`
+          : `${label}: ${rate.toFixed(2)}g/s로는 ${step.duration}초 안에 ${step.water}g을 붓지 못합니다. 최소 ${Math.ceil(toNumber(step.water) / rate)}초가 필요합니다.`,
+      );
+    }
     if (issues.note) messages.push(`${label} 메모는 ${MAX_NOTE}자 이하여야 합니다.`);
-    if (issues.title || issues.duration || issues.water || issues.note) badStepIds.add(step.id);
+    if (issues.title || issues.duration || issues.water || issues.flowRate || issues.note) {
+      badStepIds.add(step.id);
+    }
   });
 
   return { messages, badStepIds };
@@ -148,6 +187,7 @@ function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[]): Re
       action: step.action,
       duration: toNumber(step.duration),
       water: step.action === 'pour' ? toNumber(step.water) : 0,
+      flowRate: step.action === 'pour' ? draftFlowRate(step) : null,
       note: step.note,
     })),
   };
@@ -171,6 +211,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
       action: step.action,
       duration: numberText(step.duration),
       water: numberText(step.water),
+      flowRate: step.flowRate === null ? '' : numberText(step.flowRate),
       note: step.note,
     })),
   );
@@ -246,6 +287,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
               action: 'pour',
               duration: '30',
               water: '50',
+              flowRate: '',
               note: '',
             },
           ],
@@ -290,6 +332,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
         previous.map((step, index) => ({
           ...step,
           water: numberText(scaled.steps[index].water),
+          flowRate: numberText(scaled.steps[index].flowRate ?? Number.NaN),
         })),
       );
       setScaleFailed(false);
@@ -582,6 +625,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                               ...item,
                               action,
                               water: action === 'pour' ? item.water : '0',
+                              flowRate: action === 'pour' ? item.flowRate : '',
                             }));
                           }}
                         >
@@ -631,6 +675,49 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                           <span className="field-error">0~{MAX_WATER}g 사이 숫자를 입력해 주세요.</span>
                         )}
                       </label>
+                      <label className="field">
+                        <span className="field-label">유량 (g/s)</span>
+                        <input
+                          className="field-input"
+                          type="number"
+                          inputMode="decimal"
+                          min={MIN_FLOW_RATE}
+                          max={MAX_FLOW_RATE}
+                          step="0.1"
+                          value={step.action === 'pour' ? step.flowRate : ''}
+                          disabled={step.action !== 'pour'}
+                          placeholder={
+                            step.action === 'pour'
+                              ? `자동 ${effectiveFlowRate(step) > 0 ? effectiveFlowRate(step).toFixed(2) : '-'}`
+                              : '붓기 단계만'
+                          }
+                          aria-label={`${index + 1}번째 단계 유량 (초당 그램)`}
+                          aria-invalid={flagged && issues.flowRate ? true : undefined}
+                          onChange={event => {
+                            const value = event.target.value;
+                            updateStep(step.id, item => ({ ...item, flowRate: value }));
+                          }}
+                        />
+                        {flagged && issues.flowRate ? (
+                          <span className="field-error">
+                            {(() => {
+                              const explicit = draftFlowRate(step);
+                              const rate = effectiveFlowRate(step);
+                              if (explicit !== null && (explicit < MIN_FLOW_RATE || explicit > MAX_FLOW_RATE)) {
+                                return `${MIN_FLOW_RATE}~${MAX_FLOW_RATE}g/s 사이로 입력해 주세요.`;
+                              }
+                              const water = toNumber(step.water);
+                              return `${rate.toFixed(2)}g/s로는 최소 ${Math.ceil(water / rate)}초가 필요합니다.`;
+                            })()}
+                          </span>
+                        ) : (
+                          <span className="field-hint">
+                            {step.action === 'pour'
+                              ? '비우면 물량÷시간으로 자동 계산'
+                              : '붓기 단계에서만 설정'}
+                          </span>
+                        )}
+                      </label>
                       <label className="field editor-step-note">
                         <span className="field-label">메모 (선택)</span>
                         <input
@@ -662,7 +749,9 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                 {schedule.map(entry => (
                   <span className="timeline-row" key={entry.step.id}>
                     {formatTime(entry.start)} {entry.step.title}
-                    {entry.step.action === 'pour' ? ` +${entry.step.water}g` : ''}
+                    {entry.step.action === 'pour'
+                      ? ` +${entry.step.water}g · ${entry.flowRate.toFixed(2)}g/s`
+                      : ''}
                   </span>
                 ))}
               </div>

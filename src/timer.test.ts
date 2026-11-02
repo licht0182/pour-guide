@@ -15,6 +15,7 @@ function step(id: string, overrides: Partial<RecipeStep> = {}): RecipeStep {
     action: 'pour',
     duration: 10,
     water: 100,
+    flowRate: null,
     note: '',
     ...overrides,
   };

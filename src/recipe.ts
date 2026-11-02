@@ -17,6 +17,7 @@ const MIN_TEMPERATURE = 1;
 const MAX_TEMPERATURE = 100;
 const MAX_STEP_DURATION = 1800;
 const MAX_STEP_WATER = 2000;
+const MAX_FLOW_RATE = 100;
 
 export interface StepScheduleEntry {
   step: RecipeStep;
@@ -24,10 +25,18 @@ export interface StepScheduleEntry {
   end: number;
   waterBefore: number;
   waterAfter: number;
+  flowRate: number;
 }
 
 function roundWater(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+/** g/s the step actually pours at. Non-pour steps never pour. */
+export function getStepFlowRate(step: RecipeStep): number {
+  if (step.action !== 'pour') return 0;
+  if (step.flowRate !== null) return step.flowRate;
+  return step.duration > 0 ? step.water / step.duration : 0;
 }
 
 function fail(message: string): never {
@@ -87,8 +96,15 @@ function validateStep(value: unknown, index: number, seenIds: Set<string>): Reci
   if (action !== 'pour' && water !== 0) {
     fail(`${label}: 물 붓기 단계가 아니면 물량은 0이어야 합니다.`);
   }
+  let flowRate: number | null = null;
+  if (action === 'pour' && record.flowRate !== undefined && record.flowRate !== null) {
+    flowRate = requireNumber(record.flowRate, `${label} 유량`, 0.1, MAX_FLOW_RATE);
+    if (flowRate * duration + 1e-9 < water) {
+      fail(`${label}: 유량 ${flowRate}g/s로 ${water}g을 부으려면 최소 ${Math.ceil(water / flowRate)}초가 필요합니다.`);
+    }
+  }
   const note = requireText(record.note, `${label} 메모`, MAX_NOTE, true);
-  return { id, title, action, duration, water, note };
+  return { id, title, action, duration, water, flowRate, note };
 }
 
 export function validateRecipe(value: unknown): Recipe {
@@ -133,6 +149,7 @@ export function scaleRecipe(recipe: Recipe, coffee: number): Recipe {
     steps: recipe.steps.map(step => ({
       ...step,
       water: step.action === 'pour' ? roundWater(step.water * ratio) : 0,
+      flowRate: step.flowRate === null ? null : Math.round(step.flowRate * ratio * 100) / 100,
     })),
   };
 }
@@ -167,7 +184,14 @@ export function getStepSchedule(recipe: Recipe): StepScheduleEntry[] {
     const waterBefore = water;
     const waterAfter = step.action === 'pour' ? roundWater(waterBefore + step.water) : waterBefore;
     water = waterAfter;
-    const entry: StepScheduleEntry = { step, start, end, waterBefore, waterAfter };
+    const entry: StepScheduleEntry = {
+      step,
+      start,
+      end,
+      waterBefore,
+      waterAfter,
+      flowRate: getStepFlowRate(step),
+    };
     start = end;
     return entry;
   });
@@ -183,14 +207,14 @@ export const PRESETS: Recipe[] = [
     grind: '중간보다 약간 가늘게',
     dripper: 'V60 02',
     steps: [
-      { id: 'daily-1', title: '블룸', action: 'pour', duration: 15, water: 60, note: '원두 전체를 적시며 천천히 부어 주세요.' },
-      { id: 'daily-2', title: '가볍게 스월', action: 'swirl', duration: 5, water: 0, note: '드리퍼를 작게 흔들어 원두층을 고르게 펴 주세요.' },
-      { id: 'daily-3', title: '블룸 대기', action: 'wait', duration: 25, water: 0, note: '가스가 빠져나가도록 기다립니다.' },
-      { id: 'daily-4', title: '첫 번째 푸어', action: 'pour', duration: 30, water: 120, note: '중심에서 바깥으로 나선을 그리며 절반을 부어 주세요.' },
-      { id: 'daily-5', title: '잠깐 대기', action: 'wait', duration: 15, water: 0, note: '수위가 살짝 내려갈 때까지 기다립니다.' },
-      { id: 'daily-6', title: '두 번째 푸어', action: 'pour', duration: 30, water: 120, note: '같은 속도로 남은 물을 천천히 부어 주세요.' },
-      { id: 'daily-7', title: '살짝 젓기', action: 'stir', duration: 5, water: 0, note: '나무 막대로 한두 번만 부드럽게 젓습니다.' },
-      { id: 'daily-8', title: '드로다운', action: 'wait', duration: 55, water: 0, note: '물이 다 빠질 때까지 기다린 뒤 서버를 흔들어 주세요.' },
+      { id: 'daily-1', title: '블룸', action: 'pour', duration: 15, water: 60, flowRate: null, note: '원두 전체를 적시며 천천히 부어 주세요.' },
+      { id: 'daily-2', title: '가볍게 스월', action: 'swirl', duration: 5, water: 0, flowRate: null, note: '드리퍼를 작게 흔들어 원두층을 고르게 펴 주세요.' },
+      { id: 'daily-3', title: '블룸 대기', action: 'wait', duration: 25, water: 0, flowRate: null, note: '가스가 빠져나가도록 기다립니다.' },
+      { id: 'daily-4', title: '첫 번째 푸어', action: 'pour', duration: 30, water: 120, flowRate: null, note: '중심에서 바깥으로 나선을 그리며 절반을 부어 주세요.' },
+      { id: 'daily-5', title: '잠깐 대기', action: 'wait', duration: 15, water: 0, flowRate: null, note: '수위가 살짝 내려갈 때까지 기다립니다.' },
+      { id: 'daily-6', title: '두 번째 푸어', action: 'pour', duration: 30, water: 120, flowRate: null, note: '같은 속도로 남은 물을 천천히 부어 주세요.' },
+      { id: 'daily-7', title: '살짝 젓기', action: 'stir', duration: 5, water: 0, flowRate: null, note: '나무 막대로 한두 번만 부드럽게 젓습니다.' },
+      { id: 'daily-8', title: '드로다운', action: 'wait', duration: 55, water: 0, flowRate: null, note: '물이 다 빠질 때까지 기다린 뒤 서버를 흔들어 주세요.' },
     ],
   },
   {
@@ -202,14 +226,14 @@ export const PRESETS: Recipe[] = [
     grind: '중간',
     dripper: 'V60 01',
     steps: [
-      { id: 'evening-1', title: '블룸', action: 'pour', duration: 30, water: 45, note: '원두가 고르게 젖도록 가는 물줄기로 부어 주세요.' },
-      { id: 'evening-2', title: '스월', action: 'swirl', duration: 5, water: 0, note: '드리퍼를 한 바퀴 부드럽게 돌립니다.' },
-      { id: 'evening-3', title: '블룸 대기', action: 'wait', duration: 20, water: 0, note: '표면의 기포가 잦아들 때까지 기다립니다.' },
-      { id: 'evening-4', title: '첫 번째 푸어', action: 'pour', duration: 30, water: 100, note: '가는 물줄기로 절반 이상을 부어 주세요.' },
-      { id: 'evening-5', title: '잠깐 대기', action: 'wait', duration: 10, water: 0, note: '물이 절반쯤 빠지면 다음 푸어를 시작합니다.' },
-      { id: 'evening-6', title: '두 번째 푸어', action: 'pour', duration: 25, water: 95, note: '남은 물을 천천히 부어 마무리합니다.' },
-      { id: 'evening-7', title: '살짝 젓기', action: 'stir', duration: 5, water: 0, note: '원두층을 한 번만 가볍게 풀어 주세요.' },
-      { id: 'evening-8', title: '드로다운', action: 'wait', duration: 25, water: 0, note: '서버에 물방울이 떨어지지 않을 때까지 기다립니다.' },
+      { id: 'evening-1', title: '블룸', action: 'pour', duration: 30, water: 45, flowRate: null, note: '원두가 고르게 젖도록 가는 물줄기로 부어 주세요.' },
+      { id: 'evening-2', title: '스월', action: 'swirl', duration: 5, water: 0, flowRate: null, note: '드리퍼를 한 바퀴 부드럽게 돌립니다.' },
+      { id: 'evening-3', title: '블룸 대기', action: 'wait', duration: 20, water: 0, flowRate: null, note: '표면의 기포가 잦아들 때까지 기다립니다.' },
+      { id: 'evening-4', title: '첫 번째 푸어', action: 'pour', duration: 30, water: 100, flowRate: null, note: '가는 물줄기로 절반 이상을 부어 주세요.' },
+      { id: 'evening-5', title: '잠깐 대기', action: 'wait', duration: 10, water: 0, flowRate: null, note: '물이 절반쯤 빠지면 다음 푸어를 시작합니다.' },
+      { id: 'evening-6', title: '두 번째 푸어', action: 'pour', duration: 25, water: 95, flowRate: null, note: '남은 물을 천천히 부어 마무리합니다.' },
+      { id: 'evening-7', title: '살짝 젓기', action: 'stir', duration: 5, water: 0, flowRate: null, note: '원두층을 한 번만 가볍게 풀어 주세요.' },
+      { id: 'evening-8', title: '드로다운', action: 'wait', duration: 25, water: 0, flowRate: null, note: '서버에 물방울이 떨어지지 않을 때까지 기다립니다.' },
     ],
   },
   {
@@ -221,14 +245,14 @@ export const PRESETS: Recipe[] = [
     grind: '중간보다 약간 굵게',
     dripper: 'V60 02',
     steps: [
-      { id: 'weekend-1', title: '블룸', action: 'pour', duration: 40, water: 66, note: '원두 전체를 충분히 적시도록 천천히 부어 주세요.' },
-      { id: 'weekend-2', title: '블룸 대기', action: 'wait', duration: 20, water: 0, note: '천천히 가스가 빠져나가도록 둡니다.' },
-      { id: 'weekend-3', title: '첫 번째 푸어', action: 'pour', duration: 35, water: 132, note: '굵은 물줄기로 중심부터 바깥까지 고르게 부어 주세요.' },
-      { id: 'weekend-4', title: '스월', action: 'swirl', duration: 5, water: 0, note: '원두층이 평평해지도록 가볍게 흔듭니다.' },
-      { id: 'weekend-5', title: '잠깐 대기', action: 'wait', duration: 15, water: 0, note: '수위가 내려가는 것을 확인합니다.' },
-      { id: 'weekend-6', title: '두 번째 푸어', action: 'pour', duration: 35, water: 132, note: '같은 흐름으로 남은 물을 천천히 마무리합니다.' },
-      { id: 'weekend-7', title: '젓기', action: 'stir', duration: 10, water: 0, note: '나무 막대로 두세 번 저어 추출을 고르게 합니다.' },
-      { id: 'weekend-8', title: '드로다운', action: 'wait', duration: 50, water: 0, note: '물이 완전히 빠지면 바로 서버를 들어 주세요.' },
+      { id: 'weekend-1', title: '블룸', action: 'pour', duration: 40, water: 66, flowRate: null, note: '원두 전체를 충분히 적시도록 천천히 부어 주세요.' },
+      { id: 'weekend-2', title: '블룸 대기', action: 'wait', duration: 20, water: 0, flowRate: null, note: '천천히 가스가 빠져나가도록 둡니다.' },
+      { id: 'weekend-3', title: '첫 번째 푸어', action: 'pour', duration: 35, water: 132, flowRate: null, note: '굵은 물줄기로 중심부터 바깥까지 고르게 부어 주세요.' },
+      { id: 'weekend-4', title: '스월', action: 'swirl', duration: 5, water: 0, flowRate: null, note: '원두층이 평평해지도록 가볍게 흔듭니다.' },
+      { id: 'weekend-5', title: '잠깐 대기', action: 'wait', duration: 15, water: 0, flowRate: null, note: '수위가 내려가는 것을 확인합니다.' },
+      { id: 'weekend-6', title: '두 번째 푸어', action: 'pour', duration: 35, water: 132, flowRate: null, note: '같은 흐름으로 남은 물을 천천히 마무리합니다.' },
+      { id: 'weekend-7', title: '젓기', action: 'stir', duration: 10, water: 0, flowRate: null, note: '나무 막대로 두세 번 저어 추출을 고르게 합니다.' },
+      { id: 'weekend-8', title: '드로다운', action: 'wait', duration: 50, water: 0, flowRate: null, note: '물이 완전히 빠지면 바로 서버를 들어 주세요.' },
     ],
   },
 ];

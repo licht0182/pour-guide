@@ -12,10 +12,10 @@ const recipe: Recipe = {
   grind: '중간',
   dripper: 'V60',
   steps: [
-    { id: 'a', title: '블룸', action: 'pour', duration: 30, water: 60, note: '' },
-    { id: 'b', title: '대기', action: 'wait', duration: 15, water: 0, note: '' },
-    { id: 'c', title: '두번째', action: 'pour', duration: 45, water: 120, note: '' },
-    { id: 'd', title: '스월', action: 'swirl', duration: 5, water: 0, note: '' },
+    { id: 'a', title: '블룸', action: 'pour', duration: 30, water: 60, flowRate: null, note: '' },
+    { id: 'b', title: '대기', action: 'wait', duration: 15, water: 0, flowRate: null, note: '' },
+    { id: 'c', title: '두번째', action: 'pour', duration: 45, water: 120, flowRate: null, note: '' },
+    { id: 'd', title: '스월', action: 'swirl', duration: 5, water: 0, flowRate: null, note: '' },
   ],
 };
 
@@ -125,5 +125,39 @@ describe('timer transitions', () => {
     expect(getTimerSnapshot(recipe, 89_500).targetWater).toBe(178.7);
     expect(getTimerSnapshot(recipe, 89_999).targetWater).toBe(180);
     expect(getTimerSnapshot(recipe, 89_999).stepIndex).toBe(2);
+  });
+
+  it('follows an explicit flow rate instead of water / duration', () => {
+    const faster = {
+      ...recipe,
+      steps: recipe.steps.map((item, index) => (index === 2 ? { ...item, flowRate: 4 } : item)),
+    };
+    expect(getTimerSnapshot(faster, 55_000).targetWater).toBe(100);
+    expect(getTimerSnapshot(faster, 60_000).targetWater).toBe(120);
+    expect(getTimerSnapshot(faster, 67_500).targetWater).toBe(150);
+    expect(getTimerSnapshot(faster, 75_000).targetWater).toBe(180);
+    expect(getTimerSnapshot(faster, 85_000).targetWater).toBe(180);
+    expect(getTimerSnapshot(faster, 55_000).flowRate).toBe(4);
+  });
+
+  it('holds the step target once a configured flow finishes early', () => {
+    const early = {
+      ...recipe,
+      steps: recipe.steps.map((item, index) => (index === 0 ? { ...item, flowRate: 10 } : item)),
+    };
+    expect(getTimerSnapshot(early, 3_000).targetWater).toBe(30);
+    expect(getTimerSnapshot(early, 6_000).targetWater).toBe(60);
+    expect(getTimerSnapshot(early, 20_000).targetWater).toBe(60);
+    expect(getTimerSnapshot(early, 20_000).stepIndex).toBe(0);
+  });
+
+  it('never overshoots the step total when the rate is exact', () => {
+    const exact = {
+      ...recipe,
+      steps: recipe.steps.map((item, index) => (index === 0 ? { ...item, flowRate: 2 } : item)),
+    };
+    expect(getTimerSnapshot(exact, 30_000).targetWater).toBe(60);
+    expect(getTimerSnapshot(exact, 29_999).targetWater).toBe(60);
+    expect(getTimerSnapshot(exact, 29_999).stepIndex).toBe(0);
   });
 });

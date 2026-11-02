@@ -1,4 +1,5 @@
 import type { Recipe, TimerSnapshot, TimerState } from './types';
+import { getStepFlowRate } from './recipe';
 
 function roundTenth(value: number): number {
   return Math.round(value * 10) / 10;
@@ -55,6 +56,7 @@ export function getTimerSnapshot(recipe: Recipe, elapsedMs: number): TimerSnapsh
       waterBefore: 0,
       waterAfter: 0,
       targetWater: 0,
+      flowRate: 0,
       progress: 1,
       completed: true,
     };
@@ -103,14 +105,17 @@ export function getTimerSnapshot(recipe: Recipe, elapsedMs: number): TimerSnapsh
       waterBefore,
       waterAfter,
       targetWater: totalWater,
+      flowRate: getStepFlowRate(step),
       progress: 1,
       completed: true,
     };
   }
 
   const stepElapsed = Math.max(0, elapsed - stepStart);
+  const flowRate = getStepFlowRate(step);
+  const poured = flowRate * stepElapsed;
   const targetWater = step.action === 'pour'
-    ? roundTenth(waterBefore + (waterAfter - waterBefore) * (stepElapsed / step.duration))
+    ? roundTenth(Math.min(waterAfter, waterBefore + poured))
     : waterBefore;
 
   return {
@@ -125,6 +130,7 @@ export function getTimerSnapshot(recipe: Recipe, elapsedMs: number): TimerSnapsh
     waterBefore,
     waterAfter,
     targetWater,
+    flowRate,
     progress,
     completed: false,
   };
