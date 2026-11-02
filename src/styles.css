@@ -648,7 +648,6 @@ h3 {
   font-size: 0.8125rem;
 }
 
-.fullscreen-notice,
 .update-notice {
   display: flex;
   flex-wrap: wrap;
@@ -1948,9 +1947,7 @@ textarea.field-input {
   .brew-board.is-fullscreen .track-legend,
   .brew-board:fullscreen .track-legend,
   .brew-board.is-fullscreen .weigh-note,
-  .brew-board:fullscreen .weigh-note,
-  .brew-board.is-fullscreen .timer-help,
-  .brew-board:fullscreen .timer-help {
+  .brew-board:fullscreen .weigh-note {
     display: none;
   }
 

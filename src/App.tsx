@@ -457,7 +457,6 @@ function App() {
                 {fullscreen.active ? '전체화면 종료' : '전체화면'}
               </button>
             </div>
-            {fullscreen.notice && <p className="fullscreen-notice" role="status">{fullscreen.notice}</p>}
             {update.available && !fullscreen.active && (
               <div className="update-notice">
                 <p role="status">
@@ -610,9 +609,11 @@ function App() {
                 <RotateCcw size={17} /> 처음부터
               </button>
             </div>
-            <p className="timer-help" role="status">
-              {brew.notice || (isRunning ? '다른 탭을 잠시 봐도 실제 경과 시간에 맞춰 다시 표시됩니다.' : '소리 알림을 켜 두면 단계가 바뀔 때 알려드려요.')}
-            </p>
+            {!fullscreen.active && (
+              <p className="timer-help" role="status">
+                {brew.notice || (isRunning ? '다른 탭을 잠시 봐도 실제 경과 시간에 맞춰 다시 표시됩니다.' : '소리 알림을 켜 두면 단계가 바뀔 때 알려드려요.')}
+              </p>
+            )}
             <p className="sr-only" aria-live="polite" aria-atomic="true">
               {isComplete
                 ? '추출이 완료되었습니다.'

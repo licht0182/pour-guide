@@ -11,9 +11,6 @@ import { flushSync } from 'react-dom';
  */
 type FullscreenMode = 'native' | 'fallback' | null;
 
-const FALLBACK_NOTICE =
-  '브라우저 전체화면을 시작하지 못해 앱 화면을 가득 채워 표시합니다. 주소 표시줄은 그대로 보입니다.';
-
 const FOCUSABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
@@ -36,7 +33,6 @@ export function useBrewFullscreen() {
   const panelRef = useRef<HTMLElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [active, setActive] = useState(false);
-  const [notice, setNotice] = useState('');
   const modeRef = useRef<FullscreenMode>(null);
   const nativeElementRef = useRef<Element | null>(null);
   const requestRef = useRef(0);
@@ -53,7 +49,6 @@ export function useBrewFullscreen() {
     modeRef.current = null;
     nativeElementRef.current = null;
     setActive(false);
-    setNotice('');
     window.requestAnimationFrame(() => {
       const current = document.activeElement;
       const lost =
@@ -69,7 +64,6 @@ export function useBrewFullscreen() {
     modeRef.current = 'native';
     nativeElementRef.current = document.fullscreenElement ?? panelRef.current;
     setActive(true);
-    setNotice('');
     window.requestAnimationFrame(() => {
       const panel = panelRef.current;
       const current = document.activeElement;
@@ -81,7 +75,6 @@ export function useBrewFullscreen() {
     modeRef.current = 'fallback';
     nativeElementRef.current = null;
     setActive(true);
-    setNotice(FALLBACK_NOTICE);
     window.requestAnimationFrame(() => {
       const panel = panelRef.current;
       const current = document.activeElement;
@@ -288,5 +281,5 @@ export function useBrewFullscreen() {
     }
   }, [applyFallback, enterNative, leave]);
 
-  return { panelRef, buttonRef, active, toggle, notice };
+  return { panelRef, buttonRef, active, toggle };
 }
