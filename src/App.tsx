@@ -9,12 +9,15 @@ import {
   Github,
   Maximize,
   Minimize,
+  MonitorCog,
+  Moon,
   Pause,
   Pencil,
   Play,
   Plus,
   RotateCcw,
   Scale,
+  Sun,
   Timer,
   Trash2,
   Upload,
@@ -32,6 +35,8 @@ import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './stor
 import type { Library } from './storage';
 import { useAppUpdate } from './useAppUpdate';
 import { useBrewFullscreen } from './useBrewFullscreen';
+import { useTheme } from './theme';
+import type { ThemeMode } from './theme';
 
 const ACTION_ICONS: Record<StepAction, LucideIcon> = {
   pour: Droplets,
@@ -41,6 +46,18 @@ const ACTION_ICONS: Record<StepAction, LucideIcon> = {
 };
 
 const SOUND_KEY = 'pour-guide.sound.v1';
+
+const THEME_LABELS: Record<ThemeMode, string> = {
+  auto: '자동',
+  light: '라이트',
+  dark: '다크',
+};
+
+const THEME_NEXT: Record<ThemeMode, ThemeMode> = {
+  auto: 'light',
+  light: 'dark',
+  dark: 'auto',
+};
 
 function loadSoundPreference(): boolean {
   try {
@@ -95,6 +112,7 @@ function App() {
   const [sidebarNotice, setSidebarNotice] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const theme = useTheme();
   const libraryToggle = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const active = library.recipes.find(recipe => recipe.id === library.activeId) ?? library.recipes[0];
@@ -254,6 +272,15 @@ function App() {
           </span>
         </a>
         <div className="topbar-actions">
+          <button
+            className="icon-button theme-toggle"
+            type="button"
+            aria-label={`화면 테마: ${THEME_LABELS[theme.mode]}. 누르면 ${THEME_LABELS[THEME_NEXT[theme.mode]]} 모드로 바뀝니다.`}
+            title={`화면 테마: ${THEME_LABELS[theme.mode]} → ${THEME_LABELS[THEME_NEXT[theme.mode]]}`}
+            onClick={theme.cycle}
+          >
+            {theme.mode === 'auto' ? <MonitorCog size={19} /> : theme.mode === 'light' ? <Sun size={19} /> : <Moon size={19} />}
+          </button>
           <button
             className="icon-button"
             type="button"

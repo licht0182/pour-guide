@@ -2,7 +2,7 @@
    translucency is reserved for the single navigation toolbar. */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #f2f2f7;
   --bg-elevated: #ffffff;
   --surface: #ffffff;
@@ -41,31 +41,30 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --bg-elevated: #1c1c1e;
-    --surface: #1c1c1e;
-    --surface-secondary: #2c2c2e;
-    --fill: rgb(118 118 128 / 24%);
-    --fill-strong: rgb(118 118 128 / 38%);
-    --label: #f5f5f7;
-    --label-secondary: #b0b0b6;
-    --label-tertiary: #a1a1a6;
-    --separator: rgb(84 84 88 / 60%);
-    --separator-strong: rgb(120 120 128 / 70%);
-    --accent: #409cff;
-    --accent-hover: #64b5ff;
-    --accent-soft: rgb(64 156 255 / 16%);
-    --accent-label: #06121f;
-    --success: #30d158;
-    --danger: #ff453a;
-    --danger-soft: rgb(255 69 58 / 16%);
-    --pour: #409cff;
-    --gesture: #da8fff;
-    --shadow-card: none;
-    --shadow-sheet: 0 32px 80px rgb(0 0 0 / 60%);
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --bg-elevated: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-secondary: #2c2c2e;
+  --fill: rgb(118 118 128 / 24%);
+  --fill-strong: rgb(118 118 128 / 38%);
+  --label: #f5f5f7;
+  --label-secondary: #b0b0b6;
+  --label-tertiary: #a1a1a6;
+  --separator: rgb(84 84 88 / 60%);
+  --separator-strong: rgb(120 120 128 / 70%);
+  --accent: #409cff;
+  --accent-hover: #64b5ff;
+  --accent-soft: rgb(64 156 255 / 16%);
+  --accent-label: #06121f;
+  --success: #30d158;
+  --danger: #ff453a;
+  --danger-soft: rgb(255 69 58 / 16%);
+  --pour: #409cff;
+  --gesture: #da8fff;
+  --shadow-card: none;
+  --shadow-sheet: 0 32px 80px rgb(0 0 0 / 60%);
 }
 
 * {
@@ -1776,6 +1775,8 @@ textarea.field-input {
 /* Brew panel in native or fallback fullscreen. Background stays inert in JSX. */
 .brew-board.is-fullscreen,
 .brew-board:fullscreen {
+  --board-max: 760px;
+  --board-gutter: clamp(16px, 4vw, 32px);
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -1809,11 +1810,24 @@ textarea.field-input {
 .brew-board.is-fullscreen > *,
 .brew-board:fullscreen > * {
   width: 100%;
-  max-width: 760px;
+  max-width: var(--board-max);
   margin-right: auto;
   margin-left: auto;
-  padding-right: clamp(16px, 4vw, 32px);
-  padding-left: clamp(16px, 4vw, 32px);
+  padding-right: var(--board-gutter);
+  padding-left: var(--board-gutter);
+}
+
+/* These two are bare bars, not boxes with content to inset. Padding here would
+   shrink the visible track, so they take the same width as the content box of
+   the sections above and below them. */
+.brew-board.is-fullscreen > .step-progress,
+.brew-board:fullscreen > .step-progress,
+.brew-board.is-fullscreen > .brew-track,
+.brew-board:fullscreen > .brew-track {
+  width: calc(100% - var(--board-gutter) - var(--board-gutter));
+  max-width: calc(var(--board-max) - var(--board-gutter) - var(--board-gutter));
+  padding-right: 0;
+  padding-left: 0;
 }
 
 .brew-board.is-fullscreen > *:first-child,
@@ -1963,7 +1977,7 @@ textarea.field-input {
 }
 
 @media (prefers-contrast: more) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --label-secondary: #3a3a3c;
     --label-tertiary: #48484a;
     --separator: rgb(0 0 0 / 45%);
