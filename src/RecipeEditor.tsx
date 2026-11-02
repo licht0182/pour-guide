@@ -68,6 +68,12 @@ function numberText(value: number): string {
   return Number.isFinite(value) ? String(value) : '';
 }
 
+/** Stable, attribute-safe DOM id segment derived from a recipe or step id. */
+function idSegment(value: string): string {
+  const safe = value.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  return safe || 'item';
+}
+
 /** Mirrors recipe.getStepFlowRate so the editor previews the saved value. */
 function draftFlowRate(step: DraftStep): number | null {
   if (step.flowRate.trim() === '') return null;
@@ -196,6 +202,8 @@ function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[]): Re
 export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const editorId = idSegment(recipe.id);
   const [draft, setDraft] = useState<DraftRecipe>(() => ({
     name: recipe.name,
     description: recipe.description,
@@ -224,10 +232,20 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    const captured = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!returnFocusRef.current && captured && captured !== document.body && !dialog.contains(captured)) {
+      returnFocusRef.current = captured;
+    }
     if (!dialog.open) dialog.showModal();
     nameRef.current?.focus();
     return () => {
       if (dialog.open) dialog.close();
+      const target = returnFocusRef.current;
+      if (!target || !target.isConnected) return;
+      const focused = document.activeElement;
+      if (!focused || focused === document.body || focused === dialog || dialog.contains(focused)) {
+        target.focus();
+      }
     };
   }, []);
 
@@ -383,7 +401,8 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
           <div>
             <h2 id="recipe-editor-title" className="editor-title">레시피 편집</h2>
             <p id="recipe-editor-intro" className="editor-intro">
-              물량은 각 단계에서 추가로 붓는 양입니다. 시작 시간은 자동으로 이어집니다.
+              각 단계의 물량은 그 단계에서 추가로 붓는 양이며, 시작 시간은 앞 단계에서 자동으로
+              이어집니다. 유량을 비워 두면 물량과 시간으로 자동 계산합니다.
             </p>
           </div>
           <button type="button" className="icon-button editor-close" onClick={() => close()} aria-label="편집 닫기">
@@ -404,142 +423,187 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
             )}
             {attempted && saveError && <p className="field-error" role="alert">{saveError}</p>}
 
-            <div className="editor-fields">
-              <label className="field field-full">
-                <span className="field-label">레시피 이름</span>
-                <input
-                  ref={nameRef}
-                  className="field-input"
-                  value={draft.name}
-                  aria-invalid={attempted && (nameMissing || nameTooLong) ? true : undefined}
-                  onChange={event => patchDraft({ name: event.target.value })}
-                />
-                {attempted && (nameMissing || nameTooLong) && (
-                  <span className="field-error">
-                    {nameMissing ? '레시피 이름을 입력해 주세요.' : `이름은 ${MAX_NAME}자 이하여야 합니다.`}
-                  </span>
-                )}
-              </label>
-
-              <label className="field field-full">
-                <span className="field-label">설명 (선택)</span>
-                <textarea
-                  className="field-input"
-                  value={draft.description}
-                  aria-invalid={attempted && descriptionTooLong ? true : undefined}
-                  onChange={event => patchDraft({ description: event.target.value })}
-                />
-                {attempted && descriptionTooLong && (
-                  <span className="field-error">설명은 {MAX_DESCRIPTION}자 이하여야 합니다.</span>
-                )}
-              </label>
-
-              <label className="field">
-                <span className="field-label">원두량 (g)</span>
-                <input
-                  className="field-input"
-                  type="number"
-                  inputMode="decimal"
-                  min={MIN_COFFEE}
-                  max={MAX_COFFEE}
-                  step="0.1"
-                  value={draft.coffee}
-                  aria-invalid={attempted && coffeeInvalid ? true : undefined}
-                  onChange={event => patchDraft({ coffee: event.target.value })}
-                />
-                {attempted && coffeeInvalid && (
-                  <span className="field-error">{MIN_COFFEE}~{MAX_COFFEE}g 사이 숫자를 입력해 주세요.</span>
-                )}
-              </label>
-
-              <label className="field">
-                <span className="field-label">물 온도 (℃)</span>
-                <input
-                  className="field-input"
-                  type="number"
-                  inputMode="decimal"
-                  min={MIN_TEMPERATURE}
-                  max={MAX_TEMPERATURE}
-                  step="1"
-                  value={draft.temperature}
-                  aria-invalid={attempted && temperatureInvalid ? true : undefined}
-                  onChange={event => patchDraft({ temperature: event.target.value })}
-                />
-                {attempted && temperatureInvalid && (
-                  <span className="field-error">{MIN_TEMPERATURE}~{MAX_TEMPERATURE}℃ 사이 숫자를 입력해 주세요.</span>
-                )}
-              </label>
-
-              <label className="field">
-                <span className="field-label">분쇄도</span>
-                <input
-                  className="field-input"
-                  value={draft.grind}
-                  aria-invalid={attempted && (grindMissing || grindTooLong) ? true : undefined}
-                  onChange={event => patchDraft({ grind: event.target.value })}
-                />
-                {attempted && (grindMissing || grindTooLong) && (
-                  <span className="field-error">
-                    {grindMissing ? '분쇄도를 입력해 주세요.' : `분쇄도는 ${MAX_TEXT}자 이하여야 합니다.`}
-                  </span>
-                )}
-              </label>
-
-              <label className="field">
-                <span className="field-label">드리퍼</span>
-                <input
-                  className="field-input"
-                  value={draft.dripper}
-                  aria-invalid={attempted && (dripperMissing || dripperTooLong) ? true : undefined}
-                  onChange={event => patchDraft({ dripper: event.target.value })}
-                />
-                {attempted && (dripperMissing || dripperTooLong) && (
-                  <span className="field-error">
-                    {dripperMissing ? '드리퍼를 입력해 주세요.' : `드리퍼는 ${MAX_TEXT}자 이하여야 합니다.`}
-                  </span>
-                )}
-              </label>
-            </div>
-
-            <div className="field">
-              <span className="field-label">원두량에 맞춰 물량 조정</span>
-              <div className="editor-scale-row">
-                <input
-                  className="field-input"
-                  type="number"
-                  inputMode="decimal"
-                  min={MIN_COFFEE}
-                  max={MAX_COFFEE}
-                  step="0.1"
-                  value={scaleTarget}
-                  placeholder={Number.isFinite(coffee) ? `현재 ${numberText(coffee)}g` : '목표 원두량'}
-                  aria-label="조정할 원두량 (g)"
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      applyScale();
+            <section aria-labelledby={`${editorId}-details-heading`}>
+              <div className="editor-fields">
+                <h3 id={`${editorId}-details-heading`} className="editor-section-title field-full">
+                  레시피 정보
+                </h3>
+                <div className="field field-full">
+                  <label className="field-label" htmlFor={`${editorId}-name`}>레시피 이름</label>
+                  <input
+                    ref={nameRef}
+                    id={`${editorId}-name`}
+                    className="field-input"
+                    value={draft.name}
+                    aria-invalid={attempted && (nameMissing || nameTooLong) ? true : undefined}
+                    aria-describedby={
+                      attempted && (nameMissing || nameTooLong) ? `${editorId}-name-error` : undefined
                     }
-                  }}
-                  onChange={event => {
-                    setScaleTarget(event.target.value);
-                    setScaleNotice('');
-                    setScaleFailed(false);
-                  }}
-                />
-                <button type="button" className="btn btn-secondary" onClick={applyScale}>
-                  <Scale size={15} aria-hidden="true" /> 원두량에 맞춰 물량 조정
-                </button>
+                    onChange={event => patchDraft({ name: event.target.value })}
+                  />
+                  {attempted && (nameMissing || nameTooLong) && (
+                    <span id={`${editorId}-name-error`} className="field-error">
+                      {nameMissing ? '레시피 이름을 입력해 주세요.' : `이름은 ${MAX_NAME}자 이하여야 합니다.`}
+                    </span>
+                  )}
+                </div>
+
+                <div className="field field-full">
+                  <label className="field-label" htmlFor={`${editorId}-description`}>설명 (선택)</label>
+                  <textarea
+                    id={`${editorId}-description`}
+                    className="field-input"
+                    value={draft.description}
+                    aria-invalid={attempted && descriptionTooLong ? true : undefined}
+                    aria-describedby={
+                      attempted && descriptionTooLong ? `${editorId}-description-error` : undefined
+                    }
+                    onChange={event => patchDraft({ description: event.target.value })}
+                  />
+                  {attempted && descriptionTooLong && (
+                    <span id={`${editorId}-description-error`} className="field-error">
+                      설명은 {MAX_DESCRIPTION}자 이하여야 합니다.
+                    </span>
+                  )}
+                </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor={`${editorId}-coffee`}>원두량 (g)</label>
+                  <input
+                    id={`${editorId}-coffee`}
+                    className="field-input"
+                    type="number"
+                    inputMode="decimal"
+                    min={MIN_COFFEE}
+                    max={MAX_COFFEE}
+                    step="0.1"
+                    value={draft.coffee}
+                    aria-invalid={attempted && coffeeInvalid ? true : undefined}
+                    aria-describedby={attempted && coffeeInvalid ? `${editorId}-coffee-error` : undefined}
+                    onChange={event => patchDraft({ coffee: event.target.value })}
+                  />
+                  {attempted && coffeeInvalid && (
+                    <span id={`${editorId}-coffee-error`} className="field-error">
+                      {MIN_COFFEE}~{MAX_COFFEE}g 사이 숫자를 입력해 주세요.
+                    </span>
+                  )}
+                </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor={`${editorId}-temperature`}>물 온도 (℃)</label>
+                  <input
+                    id={`${editorId}-temperature`}
+                    className="field-input"
+                    type="number"
+                    inputMode="decimal"
+                    min={MIN_TEMPERATURE}
+                    max={MAX_TEMPERATURE}
+                    step="1"
+                    value={draft.temperature}
+                    aria-invalid={attempted && temperatureInvalid ? true : undefined}
+                    aria-describedby={
+                      attempted && temperatureInvalid ? `${editorId}-temperature-error` : undefined
+                    }
+                    onChange={event => patchDraft({ temperature: event.target.value })}
+                  />
+                  {attempted && temperatureInvalid && (
+                    <span id={`${editorId}-temperature-error`} className="field-error">
+                      {MIN_TEMPERATURE}~{MAX_TEMPERATURE}℃ 사이 숫자를 입력해 주세요.
+                    </span>
+                  )}
+                </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor={`${editorId}-grind`}>분쇄도</label>
+                  <input
+                    id={`${editorId}-grind`}
+                    className="field-input"
+                    value={draft.grind}
+                    aria-invalid={attempted && (grindMissing || grindTooLong) ? true : undefined}
+                    aria-describedby={
+                      attempted && (grindMissing || grindTooLong) ? `${editorId}-grind-error` : undefined
+                    }
+                    onChange={event => patchDraft({ grind: event.target.value })}
+                  />
+                  {attempted && (grindMissing || grindTooLong) && (
+                    <span id={`${editorId}-grind-error`} className="field-error">
+                      {grindMissing ? '분쇄도를 입력해 주세요.' : `분쇄도는 ${MAX_TEXT}자 이하여야 합니다.`}
+                    </span>
+                  )}
+                </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor={`${editorId}-dripper`}>드리퍼</label>
+                  <input
+                    id={`${editorId}-dripper`}
+                    className="field-input"
+                    value={draft.dripper}
+                    aria-invalid={attempted && (dripperMissing || dripperTooLong) ? true : undefined}
+                    aria-describedby={
+                      attempted && (dripperMissing || dripperTooLong) ? `${editorId}-dripper-error` : undefined
+                    }
+                    onChange={event => patchDraft({ dripper: event.target.value })}
+                  />
+                  {attempted && (dripperMissing || dripperTooLong) && (
+                    <span id={`${editorId}-dripper-error`} className="field-error">
+                      {dripperMissing ? '드리퍼를 입력해 주세요.' : `드리퍼는 ${MAX_TEXT}자 이하여야 합니다.`}
+                    </span>
+                  )}
+                </div>
               </div>
-              <span
-                className={scaleFailed ? 'field-error' : 'field-hint'}
-                role={scaleNotice ? (scaleFailed ? 'alert' : 'status') : undefined}
-              >
-                {scaleNotice || '원두량을 바꾸면 같은 비율을 유지하도록 모든 물 붓기 단계의 추가 물량을 다시 계산합니다.'}
-              </span>
-            </div>
+            </section>
+
+            <section aria-labelledby={`${editorId}-scale-heading`}>
+              <div className="editor-fields">
+                <h3 id={`${editorId}-scale-heading`} className="editor-section-title field-full">
+                  비율 조정
+                </h3>
+                <div className="field field-full">
+                  <label className="field-label" htmlFor={`${editorId}-scale-target`}>
+                    조정할 원두량 (g)
+                  </label>
+                  <div className="editor-scale-row">
+                    <input
+                      id={`${editorId}-scale-target`}
+                      className="field-input"
+                      type="number"
+                      inputMode="decimal"
+                      min={MIN_COFFEE}
+                      max={MAX_COFFEE}
+                      step="0.1"
+                      value={scaleTarget}
+                      placeholder={Number.isFinite(coffee) ? `현재 ${numberText(coffee)}g` : '목표 원두량'}
+                      aria-describedby={`${editorId}-scale-hint`}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          applyScale();
+                        }
+                      }}
+                      onChange={event => {
+                        setScaleTarget(event.target.value);
+                        setScaleNotice('');
+                        setScaleFailed(false);
+                      }}
+                    />
+                    <button type="button" className="btn btn-secondary" onClick={applyScale}>
+                      <Scale size={15} aria-hidden="true" /> 원두량에 맞춰 물량 조정
+                    </button>
+                  </div>
+                  <span
+                    id={`${editorId}-scale-hint`}
+                    className={scaleFailed ? 'field-error' : 'field-hint'}
+                    role={scaleNotice ? (scaleFailed ? 'alert' : 'status') : undefined}
+                  >
+                    {scaleNotice
+                      || '같은 비율을 유지하도록 모든 물 붓기 단계의 추가 물량과 지정한 유량을 함께 다시 계산합니다. 유량을 비워 둔 단계는 물량÷시간으로 자동 계산됩니다.'}
+                  </span>
+                </div>
+              </div>
+            </section>
 
             <div className="editor-steps-header">
-              <h3 id="editor-steps-heading">단계</h3>
+              <h3 id="editor-steps-heading" className="editor-section-title">단계</h3>
               <span className="field-hint" aria-live="polite">{steps.length} / {MAX_STEPS}단계</span>
               <button
                 type="button"
@@ -555,6 +619,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
               {steps.map((step, index) => {
                 const issues = stepIssues(step);
                 const flagged = attempted && badStepIds.has(step.id);
+                const fieldId = `${editorId}-step-${index + 1}-${idSegment(step.id)}`;
                 return (
                   <li className="editor-step" key={step.id}>
                     <div className="editor-step-head">
@@ -597,26 +662,29 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                       </div>
                     </div>
                     <div className="editor-step-fields">
-                      <label className="field">
-                        <span className="field-label">단계 이름</span>
+                      <div className="field">
+                        <label className="field-label" htmlFor={`${fieldId}-title`}>단계 이름</label>
                         <input
+                          id={`${fieldId}-title`}
                           className="field-input"
                           value={step.title}
                           aria-invalid={flagged && issues.title ? true : undefined}
+                          aria-describedby={flagged && issues.title ? `${fieldId}-title-error` : undefined}
                           onChange={event => {
                             const value = event.target.value;
                             updateStep(step.id, item => ({ ...item, title: value }));
                           }}
                         />
                         {flagged && issues.title && (
-                          <span className="field-error">
+                          <span id={`${fieldId}-title-error`} className="field-error">
                             {step.title.trim() ? `이름은 ${MAX_TEXT}자 이하여야 합니다.` : '단계 이름을 입력해 주세요.'}
                           </span>
                         )}
-                      </label>
-                      <label className="field">
-                        <span className="field-label">동작</span>
+                      </div>
+                      <div className="field">
+                        <label className="field-label" htmlFor={`${fieldId}-action`}>동작</label>
                         <select
+                          id={`${fieldId}-action`}
                           className="field-input"
                           value={step.action}
                           onChange={event => {
@@ -633,10 +701,11 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                             <option key={action} value={action}>{ACTION_LABELS[action]}</option>
                           ))}
                         </select>
-                      </label>
-                      <label className="field">
-                        <span className="field-label">시간 (초)</span>
+                      </div>
+                      <div className="field">
+                        <label className="field-label" htmlFor={`${fieldId}-duration`}>시간 (초)</label>
                         <input
+                          id={`${fieldId}-duration`}
                           className="field-input"
                           type="number"
                           inputMode="numeric"
@@ -645,18 +714,22 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                           step="1"
                           value={step.duration}
                           aria-invalid={flagged && issues.duration ? true : undefined}
+                          aria-describedby={flagged && issues.duration ? `${fieldId}-duration-error` : undefined}
                           onChange={event => {
                             const value = event.target.value;
                             updateStep(step.id, item => ({ ...item, duration: value }));
                           }}
                         />
                         {flagged && issues.duration && (
-                          <span className="field-error">1~{MAX_DURATION}초 정수로 입력해 주세요.</span>
+                          <span id={`${fieldId}-duration-error`} className="field-error">
+                            1~{MAX_DURATION}초 정수로 입력해 주세요.
+                          </span>
                         )}
-                      </label>
-                      <label className="field">
-                        <span className="field-label">추가 물량 (g)</span>
+                      </div>
+                      <div className="field">
+                        <label className="field-label" htmlFor={`${fieldId}-water`}>추가 물량 (g)</label>
                         <input
+                          id={`${fieldId}-water`}
                           className="field-input"
                           type="number"
                           inputMode="decimal"
@@ -666,18 +739,22 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                           value={step.action === 'pour' ? step.water : '0'}
                           disabled={step.action !== 'pour'}
                           aria-invalid={flagged && issues.water ? true : undefined}
+                          aria-describedby={flagged && issues.water ? `${fieldId}-water-error` : undefined}
                           onChange={event => {
                             const value = event.target.value;
                             updateStep(step.id, item => ({ ...item, water: value }));
                           }}
                         />
                         {flagged && issues.water && (
-                          <span className="field-error">0~{MAX_WATER}g 사이 숫자를 입력해 주세요.</span>
+                          <span id={`${fieldId}-water-error`} className="field-error">
+                            0~{MAX_WATER}g 사이 숫자를 입력해 주세요.
+                          </span>
                         )}
-                      </label>
-                      <label className="field">
-                        <span className="field-label">유량 (g/s)</span>
+                      </div>
+                      <div className="field">
+                        <label className="field-label" htmlFor={`${fieldId}-flow`}>유량 (g/s)</label>
                         <input
+                          id={`${fieldId}-flow`}
                           className="field-input"
                           type="number"
                           inputMode="decimal"
@@ -691,55 +768,59 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                               ? `자동 ${effectiveFlowRate(step) > 0 ? effectiveFlowRate(step).toFixed(2) : '-'}`
                               : '붓기 단계만'
                           }
-                          aria-label={`${index + 1}번째 단계 유량 (초당 그램)`}
                           aria-invalid={flagged && issues.flowRate ? true : undefined}
+                          aria-describedby={`${fieldId}-flow-hint`}
                           onChange={event => {
                             const value = event.target.value;
                             updateStep(step.id, item => ({ ...item, flowRate: value }));
                           }}
                         />
-                        {flagged && issues.flowRate ? (
-                          <span className="field-error">
-                            {(() => {
-                              const explicit = draftFlowRate(step);
-                              const rate = effectiveFlowRate(step);
-                              if (explicit !== null && (explicit < MIN_FLOW_RATE || explicit > MAX_FLOW_RATE)) {
-                                return `${MIN_FLOW_RATE}~${MAX_FLOW_RATE}g/s 사이로 입력해 주세요.`;
-                              }
-                              const water = toNumber(step.water);
-                              return `${rate.toFixed(2)}g/s로는 최소 ${Math.ceil(water / rate)}초가 필요합니다.`;
-                            })()}
-                          </span>
-                        ) : (
-                          <span className="field-hint">
-                            {step.action === 'pour'
-                              ? '비우면 물량÷시간으로 자동 계산'
+                        <span
+                          id={`${fieldId}-flow-hint`}
+                          className={flagged && issues.flowRate ? 'field-error' : 'field-hint'}
+                        >
+                          {flagged && issues.flowRate
+                            ? (() => {
+                                const explicit = draftFlowRate(step);
+                                const rate = effectiveFlowRate(step);
+                                if (explicit !== null && (explicit < MIN_FLOW_RATE || explicit > MAX_FLOW_RATE)) {
+                                  return `${MIN_FLOW_RATE}~${MAX_FLOW_RATE}g/s 사이로 입력해 주세요.`;
+                                }
+                                const water = toNumber(step.water);
+                                return `${rate.toFixed(2)}g/s로는 최소 ${Math.ceil(water / rate)}초가 필요합니다.`;
+                              })()
+                            : step.action === 'pour'
+                              ? `비우면 자동 계산(물량÷시간), 입력하면 입력값을 지정 유량(${MIN_FLOW_RATE}~${MAX_FLOW_RATE}g/s)으로 사용`
                               : '붓기 단계에서만 설정'}
-                          </span>
-                        )}
-                      </label>
-                      <label className="field editor-step-note">
-                        <span className="field-label">메모 (선택)</span>
+                        </span>
+                      </div>
+                      <div className="field editor-step-note">
+                        <label className="field-label" htmlFor={`${fieldId}-note`}>메모 (선택)</label>
                         <input
+                          id={`${fieldId}-note`}
                           className="field-input"
                           value={step.note}
                           aria-invalid={flagged && issues.note ? true : undefined}
+                          aria-describedby={flagged && issues.note ? `${fieldId}-note-error` : undefined}
                           onChange={event => {
                             const value = event.target.value;
                             updateStep(step.id, item => ({ ...item, note: value }));
                           }}
                         />
                         {flagged && issues.note && (
-                          <span className="field-error">메모는 {MAX_NOTE}자 이하여야 합니다.</span>
+                          <span id={`${fieldId}-note-error`} className="field-error">
+                            메모는 {MAX_NOTE}자 이하여야 합니다.
+                          </span>
                         )}
-                      </label>
+                      </div>
                     </div>
                   </li>
                 );
               })}
             </ol>
 
-            <section className="editor-summary" aria-label="계산된 추출 요약">
+            <section className="editor-summary" aria-labelledby="editor-summary-heading">
+              <h3 id="editor-summary-heading" className="editor-section-title">추출 요약</h3>
               <div className="summary-stats">
                 <span>총 물량 <strong>{water}g</strong></span>
                 <span>총 시간 <strong>{formatTime(duration)}</strong></span>

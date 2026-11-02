@@ -90,6 +90,8 @@ function App() {
   const [flash, setFlash] = useState('');
   const [sidebarNotice, setSidebarNotice] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const libraryToggle = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const active = library.recipes.find(recipe => recipe.id === library.activeId) ?? library.recipes[0];
   const brew = useBrewTimer(active, sound);
@@ -149,12 +151,25 @@ function App() {
   }, [editing]);
 
   useEffect(() => {
+    if (!libraryOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setLibraryOpen(false);
+      libraryToggle.current?.focus();
+    };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [libraryOpen]);
+
+  useEffect(() => {
     if (!pendingDelete) return;
     const timeout = window.setTimeout(() => setPendingDelete(null), 4000);
     return () => window.clearTimeout(timeout);
   }, [pendingDelete]);
 
   const selectRecipe = (id: string) => {
+    setLibraryOpen(false);
+    if (window.matchMedia('(max-width: 800px)').matches) libraryToggle.current?.focus();
     if (id === library.activeId) return;
     setPendingDelete(null);
     setSidebarNotice('');
@@ -225,8 +240,8 @@ function App() {
             </svg>
           </span>
           <span>
-            <strong>POUR GUIDE</strong>
-            <small>나만의 커피 리추얼</small>
+            <strong>Pour Guide</strong>
+            <small>한 잔에 집중하는 시간</small>
           </span>
         </a>
         <div className="topbar-actions">
@@ -257,11 +272,24 @@ function App() {
       </header>
 
       <main className="workspace">
-        <aside className="library" aria-label="레시피 보관함">
+        <h1 className="sr-only">Pour Guide 추출 가이드</h1>
+        <button
+          ref={libraryToggle}
+          className="library-toggle"
+          type="button"
+          aria-expanded={libraryOpen}
+          aria-controls="recipe-library"
+          onClick={() => setLibraryOpen(open => !open)}
+        >
+          <BookOpen size={20} aria-hidden="true" />
+          <span>레시피 선택 <strong>{active.name}</strong></span>
+          <ArrowRight size={18} aria-hidden="true" />
+        </button>
+        <aside id="recipe-library" className={`library${libraryOpen ? ' is-open' : ''}`} aria-label="레시피 보관함">
           <div className="library-heading">
-            <p className="eyebrow">MY RECIPES</p>
-            <h1>브루 라이브러리</h1>
-            <p>레시피를 고르고, 물과 행동이 필요한 순간을 놓치지 마세요.</p>
+            <p className="eyebrow">나의 컬렉션</p>
+            <h2>레시피</h2>
+            <p>오늘 내릴 한 잔을 골라보세요.</p>
           </div>
 
           <div className="library-list">
@@ -334,7 +362,7 @@ function App() {
           <article className="recipe-hero">
             <div className="hero-top">
               <div>
-                <p className="eyebrow">TODAY&apos;S BREW</p>
+                <p className="eyebrow">오늘의 커피</p>
                 <h2>{active.name}</h2>
               </div>
               <div className="hero-actions">
@@ -346,7 +374,9 @@ function App() {
                 </button>
               </div>
             </div>
-            <p className="recipe-description">{active.description}</p>
+            {active.description.trim() && (
+              <p className="recipe-description">{active.description}</p>
+            )}
             <div className="recipe-chips" aria-label="추출 정보">
               <span>{active.dripper}</span>
               <span>{active.grind}</span>
@@ -373,14 +403,13 @@ function App() {
           </article>
 
           <section className={`brew-board${isComplete ? ' is-complete' : ''}`} aria-label="실시간 추출 타이머">
-            <div className="board-glow" aria-hidden="true" />
             <div className="brew-readout">
               <div className="clock-block">
-                <p className="board-label">{isComplete ? 'BREW COMPLETE' : isPaused ? 'PAUSED' : isRunning ? 'BREWING' : 'READY'}</p>
+                <p className="board-label">{isComplete ? '추출 완료' : isPaused ? '일시정지' : isRunning ? '추출 중' : '추출 준비'}</p>
                 <p className="clock" role="timer" aria-label={`경과 시간 ${formatTime(brew.snapshot.elapsed)}`}>
                   {formatTime(brew.snapshot.elapsed)}
                 </p>
-                <p className="clock-total">of {formatTime(duration)}</p>
+                <p className="clock-total">전체 {formatTime(duration)}</p>
               </div>
               <div className="water-pair">
                 <div className="water-block water-block-final">
@@ -392,7 +421,7 @@ function App() {
                     {isComplete
                       ? `총 ${waterTotal}g · 천천히 즐기세요`
                       : step.action === 'pour'
-                        ? `이번 단계 +${step.water}g을 더하면 여기까지`
+                        ? `이번 단계에서 +${step.water}g`
                         : '이번 단계에서는 붓지 않아요'}
                   </p>
                 </div>
@@ -413,11 +442,11 @@ function App() {
                 </div>
               </div>
               <p className="weigh-note">
-                <Scale size={13} aria-hidden="true" /> 추출 시작 전에 저울을 영점으로 맞추세요. 두 숫자 모두 저울의 누적 무게입니다.
+                <Scale size={16} aria-hidden="true" /> 시작 전 저울의 영점을 맞추세요. 두 목표는 모두 누적 무게입니다.
               </p>
             </div>
 
-            <div className="step-progress" aria-hidden="true">
+            <div className="step-progress" role="progressbar" aria-label="현재 단계 진행률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((isComplete ? 1 : stepProgress) * 100)}>
               <span style={{ transform: `scaleX(${isComplete ? 1 : stepProgress})` }} />
             </div>
             <div className="step-progress-caption">
@@ -439,7 +468,6 @@ function App() {
                   />
                 );
               })}
-              <span className="track-marker" style={{ left: `${(isComplete ? 1 : brew.snapshot.progress) * 100}%` }} />
             </div>
             <div className="track-legend" aria-hidden="true">
               <span><i className="dot dot-pour" />붓기</span>
@@ -459,7 +487,7 @@ function App() {
             ) : (
               <div className={`instruction-card action-${step.action}`} key={step.id}>
                 <div className="instruction-head">
-                  <span className="step-badge">STEP {String(brew.snapshot.stepIndex + 1).padStart(2, '0')}</span>
+                  <span className="step-badge">{String(brew.snapshot.stepIndex + 1).padStart(2, '0')} 단계</span>
                   <span className="action-pill">
                     <ActionIcon action={step.action} size={15} /> {ACTION_LABELS[step.action]}
                   </span>
@@ -475,7 +503,7 @@ function App() {
                 <div className="instruction-foot">
                   <span className="water-progress">
                     {step.action === 'pour'
-                      ? `${pouredThisStep.toFixed(1)} / ${step.water}g 부음 · ${stepFlowRate.toFixed(2)}g/s`
+                      ? `추가 목표 ${pouredThisStep.toFixed(1)} / ${step.water}g · ${stepFlowRate.toFixed(2)}g/s`
                       : `누적 ${Math.round(liveTarget)}g 유지`}
                   </span>
                   {next ? (
@@ -530,10 +558,10 @@ function App() {
           <section className="steps-panel" aria-labelledby="steps-heading">
             <div className="steps-panel-head">
               <div>
-                <p className="eyebrow">THE POUR</p>
+                <p className="eyebrow">단계별 안내</p>
                 <h3 id="steps-heading">전체 추출 흐름</h3>
               </div>
-              <span className="steps-total">{active.steps.length} steps · {waterTotal}g</span>
+              <span className="steps-total">{active.steps.length}단계 · {waterTotal}g</span>
             </div>
             <ol className="step-list">
               {schedule.map((entry, index) => {
@@ -543,6 +571,7 @@ function App() {
                   <li
                     key={entry.step.id}
                     className={`step-row${done ? ' is-done' : ''}${current ? ' is-current' : ''}`}
+                    aria-current={current ? 'step' : undefined}
                   >
                     <span className="step-number">{String(index + 1).padStart(2, '0')}</span>
                     <span className="step-time">{formatTime(entry.start)}<small>–{formatTime(entry.end)}</small></span>
