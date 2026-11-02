@@ -5,8 +5,8 @@
   --card: #fffdf8;
   --ink: #20342a;
   --ink-strong: #14251c;
-  --muted: #68746b;
-  --faint: #97a097;
+  --muted: #5d6a60;
+  --faint: #667166;
   --line: #d9ddcf;
   --line-strong: #c6cbbd;
   --forest: #294537;
@@ -621,7 +621,7 @@ button:disabled {
   font-family: "Avenir Next", "Trebuchet MS", sans-serif;
   font-size: 10px;
   font-weight: 800;
-  color: rgb(240 236 222 / 52%);
+  color: rgb(240 236 222 / 68%);
   letter-spacing: 0.18em;
 }
 
@@ -639,7 +639,7 @@ button:disabled {
   margin-top: 4px;
   font-family: "Avenir Next", "Trebuchet MS", sans-serif;
   font-size: 12px;
-  color: rgb(240 236 222 / 48%);
+  color: rgb(240 236 222 / 68%);
   font-variant-numeric: tabular-nums;
 }
 
@@ -673,7 +673,7 @@ button:disabled {
   font-size: 10.5px;
   font-weight: 550;
   line-height: 1.45;
-  color: rgb(240 236 222 / 57%);
+  color: rgb(240 236 222 / 74%);
 }
 
 .step-progress {
@@ -701,7 +701,7 @@ button:disabled {
   font-family: "Avenir Next", "Trebuchet MS", sans-serif;
   font-size: 9.5px;
   font-weight: 650;
-  color: rgb(240 236 222 / 44%);
+  color: rgb(240 236 222 / 68%);
   letter-spacing: 0.06em;
 }
 
@@ -764,7 +764,7 @@ button:disabled {
   align-items: center;
   margin-top: 10px;
   font-size: 9.5px;
-  color: rgb(240 236 222 / 43%);
+  color: rgb(240 236 222 / 64%);
 }
 
 .track-legend span {
@@ -959,7 +959,7 @@ button:disabled {
   min-height: 16px;
   margin-top: 10px;
   font-size: 10.5px;
-  color: rgb(240 236 222 / 48%);
+  color: rgb(240 236 222 / 68%);
 }
 
 .steps-panel {
