@@ -28,7 +28,7 @@ export function useBrewTimer(recipe: Recipe, sound: boolean) {
   const previewSound = useCallback(async () => {
     chime.current ??= new BrewChime();
     const played = await chime.current.play(true);
-    if (!played) setNotice('이 브라우저에서 알림음을 재생하지 못했습니다. 화면 안내를 확인해 주세요.');
+    setNotice(played ? '' : '이 브라우저에서 알림음을 재생하지 못했습니다. 화면 안내를 확인해 주세요.');
     return played;
   }, []);
 
