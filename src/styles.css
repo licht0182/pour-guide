@@ -628,6 +628,55 @@ h3 {
   gap: 12px;
 }
 
+.brew-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brew-toolbar .eyebrow {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fullscreen-toggle {
+  flex: none;
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 0.8125rem;
+}
+
+.fullscreen-notice,
+.update-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  color: var(--label-secondary);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.update-notice {
+  background: var(--accent-soft);
+}
+
+.update-notice p {
+  flex: 1 1 220px;
+}
+
+.update-notice .btn {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 0.8125rem;
+}
+
 .clock-block {
   display: flex;
   flex-wrap: wrap;
@@ -1721,6 +1770,184 @@ textarea.field-input {
   .editor-fields,
   .editor-step-fields {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Brew panel in native or fallback fullscreen. Background stays inert in JSX. */
+.brew-board.is-fullscreen,
+.brew-board:fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  gap: 0;
+  width: 100%;
+  height: 100dvh;
+  max-height: none;
+  padding: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+@supports (height: 100svh) {
+  .brew-board.is-fullscreen,
+  .brew-board:fullscreen {
+    height: 100svh;
+    max-height: 100dvh;
+  }
+}
+
+.brew-board:fullscreen::backdrop {
+  background: var(--surface);
+}
+
+.brew-board.is-fullscreen > *,
+.brew-board:fullscreen > * {
+  width: 100%;
+  max-width: 760px;
+  margin-right: auto;
+  margin-left: auto;
+  padding-right: clamp(16px, 4vw, 32px);
+  padding-left: clamp(16px, 4vw, 32px);
+}
+
+.brew-board.is-fullscreen > *:first-child,
+.brew-board:fullscreen > *:first-child {
+  padding-top: 16px;
+}
+
+.brew-board.is-fullscreen > *:last-child,
+.brew-board:fullscreen > *:last-child {
+  padding-bottom: 20px;
+}
+
+.brew-board.is-fullscreen .brew-toolbar,
+.brew-board:fullscreen .brew-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--separator);
+}
+
+.brew-board.is-fullscreen .brew-readout,
+.brew-board:fullscreen .brew-readout {
+  gap: 16px;
+  padding-top: 12px;
+}
+
+.brew-board.is-fullscreen .clock,
+.brew-board:fullscreen .clock {
+  font-size: clamp(3.5rem, 16vw, 9rem);
+}
+
+.brew-board.is-fullscreen .water-target,
+.brew-board:fullscreen .water-target {
+  font-size: clamp(2rem, 9vw, 5rem);
+}
+
+.brew-board.is-fullscreen .water-note,
+.brew-board:fullscreen .water-note {
+  font-size: 0.8125rem;
+}
+
+.brew-board.is-fullscreen .instruction-card h3,
+.brew-board:fullscreen .instruction-card h3 {
+  font-size: clamp(1.5rem, 5vw, 2.25rem);
+}
+
+.brew-board.is-fullscreen .instruction-copy,
+.brew-board:fullscreen .instruction-copy {
+  font-size: 1rem;
+}
+
+.brew-board.is-fullscreen .controls,
+.brew-board:fullscreen .controls {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--separator);
+}
+
+.brew-board.is-fullscreen .controls .btn,
+.brew-board:fullscreen .controls .btn {
+  min-height: 58px;
+  font-size: 1.0625rem;
+  border-radius: var(--radius-md);
+}
+
+@media (min-width: 721px) {
+  .brew-board.is-fullscreen .controls,
+  .brew-board:fullscreen .controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .brew-board.is-fullscreen .controls .btn,
+  .brew-board:fullscreen .controls .btn {
+    min-height: 54px;
+    font-size: 1rem;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .brew-board.is-fullscreen,
+  .brew-board:fullscreen {
+    gap: 0;
+  }
+
+  .brew-board.is-fullscreen .brew-readout,
+  .brew-board:fullscreen .brew-readout {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .brew-board.is-fullscreen .water-pair,
+  .brew-board:fullscreen .water-pair {
+    align-content: start;
+  }
+
+  .brew-board.is-fullscreen .clock,
+  .brew-board:fullscreen .clock {
+    font-size: clamp(2.75rem, 12vh, 4.5rem);
+  }
+
+  .brew-board.is-fullscreen .water-target,
+  .brew-board:fullscreen .water-target {
+    font-size: clamp(1.75rem, 7vh, 3rem);
+  }
+
+  .brew-board.is-fullscreen .step-progress-caption,
+  .brew-board:fullscreen .step-progress-caption,
+  .brew-board.is-fullscreen .track-legend,
+  .brew-board:fullscreen .track-legend,
+  .brew-board.is-fullscreen .weigh-note,
+  .brew-board:fullscreen .weigh-note,
+  .brew-board.is-fullscreen .timer-help,
+  .brew-board:fullscreen .timer-help {
+    display: none;
+  }
+
+  .brew-board.is-fullscreen .instruction-card,
+  .brew-board:fullscreen .instruction-card {
+    padding: 12px 14px;
+  }
+
+  .brew-board.is-fullscreen .instruction-copy,
+  .brew-board:fullscreen .instruction-copy {
+    font-size: 0.9375rem;
   }
 }
 

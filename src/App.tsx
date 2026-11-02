@@ -7,6 +7,8 @@ import {
   Download,
   Droplets,
   Github,
+  Maximize,
+  Minimize,
   Pause,
   Pencil,
   Play,
@@ -28,6 +30,8 @@ import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
 import type { Library } from './storage';
+import { useAppUpdate } from './useAppUpdate';
+import { useBrewFullscreen } from './useBrewFullscreen';
 
 const ACTION_ICONS: Record<StepAction, LucideIcon> = {
   pour: Droplets,
@@ -116,6 +120,11 @@ function App() {
   const liveTarget = isComplete ? waterTotal : brew.snapshot.targetWater;
   const pouredThisStep = Math.max(0, liveTarget - brew.snapshot.waterBefore);
   const reachedTarget = step.action === 'pour' && !isComplete && liveTarget >= finalStepTarget;
+  const fullscreen = useBrewFullscreen();
+  const updateRefreshBlocked = isRunning || isPaused || editing !== null || fullscreen.active;
+  // The completed screen may offer the update, but it must not disappear on its
+  // own while the user is reading the result.
+  const update = useAppUpdate(updateRefreshBlocked || isComplete, updateRefreshBlocked);
 
   useEffect(() => {
     if (!hydrated.current) {
@@ -230,8 +239,8 @@ function App() {
 
   return (
     <div className="app">
-      <a className="skip-link" href="#brew">추출 안내로 건너뛰기</a>
-      <header className="topbar">
+      <a className="skip-link" href="#brew" inert={fullscreen.active}>추출 안내로 건너뛰기</a>
+      <header className="topbar" inert={fullscreen.active}>
         <a className="brand" href={import.meta.env.BASE_URL} aria-label="Pour Guide 홈">
           <span className="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 40 40" width="30" height="30" fill="none">
@@ -279,13 +288,14 @@ function App() {
           type="button"
           aria-expanded={libraryOpen}
           aria-controls="recipe-library"
+          inert={fullscreen.active}
           onClick={() => setLibraryOpen(open => !open)}
         >
           <BookOpen size={20} aria-hidden="true" />
           <span>레시피 선택 <strong>{active.name}</strong></span>
           <ArrowRight size={18} aria-hidden="true" />
         </button>
-        <aside id="recipe-library" className={`library${libraryOpen ? ' is-open' : ''}`} aria-label="레시피 보관함">
+        <aside id="recipe-library" className={`library${libraryOpen ? ' is-open' : ''}`} aria-label="레시피 보관함" inert={fullscreen.active}>
           <div className="library-heading">
             <p className="eyebrow">나의 컬렉션</p>
             <h2>레시피</h2>
@@ -359,7 +369,7 @@ function App() {
         </aside>
 
         <section className="studio" id="brew" aria-label="추출 스튜디오">
-          <article className="recipe-hero">
+          <article className="recipe-hero" inert={fullscreen.active}>
             <div className="hero-top">
               <div>
                 <p className="eyebrow">오늘의 커피</p>
@@ -402,7 +412,35 @@ function App() {
             </dl>
           </article>
 
-          <section className={`brew-board${isComplete ? ' is-complete' : ''}`} aria-label="실시간 추출 타이머">
+          <section
+            ref={fullscreen.panelRef}
+            className={`brew-board${isComplete ? ' is-complete' : ''}${fullscreen.active ? ' is-fullscreen' : ''}`}
+            aria-label="실시간 추출 타이머"
+          >
+            <div className="brew-toolbar">
+              <p className="eyebrow">{fullscreen.active ? active.name : '추출 가이드'}</p>
+              <button
+                ref={fullscreen.buttonRef}
+                className="btn btn-ghost fullscreen-toggle"
+                type="button"
+                aria-pressed={fullscreen.active}
+                onClick={() => void fullscreen.toggle()}
+              >
+                {fullscreen.active ? <Minimize size={18} aria-hidden="true" /> : <Maximize size={18} aria-hidden="true" />}
+                {fullscreen.active ? '전체화면 종료' : '전체화면'}
+              </button>
+            </div>
+            {fullscreen.notice && <p className="fullscreen-notice" role="status">{fullscreen.notice}</p>}
+            {update.available && !fullscreen.active && (
+              <div className="update-notice">
+                <p role="status">
+                  {updateRefreshBlocked
+                    ? '새 버전이 있습니다. 추출·편집·전체화면을 마치면 자동으로 적용됩니다.'
+                    : '새 버전을 불러올 수 있습니다.'}
+                </p>
+                <button className="btn btn-secondary" type="button" disabled={updateRefreshBlocked} onClick={update.refresh}>지금 적용</button>
+              </div>
+            )}
             <div className="brew-readout">
               <div className="clock-block">
                 <p className="board-label">{isComplete ? '추출 완료' : isPaused ? '일시정지' : isRunning ? '추출 중' : '추출 준비'}</p>
@@ -555,7 +593,7 @@ function App() {
             </p>
           </section>
 
-          <section className="steps-panel" aria-labelledby="steps-heading">
+          <section className="steps-panel" aria-labelledby="steps-heading" inert={fullscreen.active}>
             <div className="steps-panel-head">
               <div>
                 <p className="eyebrow">단계별 안내</p>
@@ -594,7 +632,7 @@ function App() {
         </section>
       </main>
 
-      <footer className="footer">
+      <footer className="footer" inert={fullscreen.active}>
         <p>직접 만든 레시피로 더 나은 한 잔을.</p>
         <p>
           참고한 프로젝트:{' '}
