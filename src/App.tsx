@@ -227,7 +227,7 @@ function App() {
             aria-label={sound ? '소리 알림 끄기' : '소리 알림 켜기'}
             title={sound ? '소리 알림 끄기' : '소리 알림 켜기'}
             onClick={() => {
-              if (!sound) brew.prepareSound();
+              if (!sound) void brew.previewSound();
               setSound(value => !value);
             }}
           >

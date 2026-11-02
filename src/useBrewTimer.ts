@@ -1,32 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Recipe, TimerState } from './types';
 import { getElapsedMs, getTimerSnapshot, initialTimer, pauseTimer, startTimer } from './timer';
+import { BrewChime } from './audio';
 
 export function useBrewTimer(recipe: Recipe, sound: boolean) {
   const [state, setState] = useState<TimerState>(initialTimer);
   const [now, setNow] = useState(Date.now);
   const [notice, setNotice] = useState('');
-  const audio = useRef<AudioContext | null>(null);
+  const chime = useRef<BrewChime | null>(null);
+  const soundRef = useRef(sound);
   const lastCue = useRef(-1);
   const snapshot = getTimerSnapshot(recipe, getElapsedMs(state, now));
+  soundRef.current = sound;
 
-  const cue = useCallback(() => {
-    const context = audio.current;
-    if (!sound || !context || context.state !== 'running') return;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.frequency.value = 740;
-    gain.gain.setValueAtTime(0.12, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.22);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.23);
-    oscillator.onended = () => {
-      oscillator.disconnect();
-      gain.disconnect();
-    };
-  }, [sound]);
+  const playCue = useCallback(async (confirmation = false) => {
+    chime.current ??= new BrewChime();
+    const played = await chime.current.play(confirmation);
+    if (!played) {
+      setNotice('이 브라우저에서 알림음을 재생하지 못했습니다. 화면 안내를 확인해 주세요.');
+    } else {
+      setNotice('');
+    }
+    return played;
+  }, []);
+
+  /** Called from the sound toggle so the browser sees a user gesture. */
+  const previewSound = useCallback(async () => {
+    chime.current ??= new BrewChime();
+    const played = await chime.current.play(true);
+    if (!played) setNotice('이 브라우저에서 알림음을 재생하지 못했습니다. 화면 안내를 확인해 주세요.');
+    return played;
+  }, []);
 
   useEffect(() => {
     if (state.status !== 'running') return;
@@ -43,13 +47,13 @@ export function useBrewTimer(recipe: Recipe, sound: boolean) {
     if (state.status !== 'running') return;
     const cueIndex = snapshot.completed ? recipe.steps.length : snapshot.stepIndex;
     if (lastCue.current !== cueIndex) {
-      cue();
       lastCue.current = cueIndex;
+      if (soundRef.current) void playCue();
     }
     if (snapshot.completed) {
       setState({ status: 'completed', elapsedMs: snapshot.totalDuration * 1000, startedAt: null });
     }
-  }, [state.status, snapshot.completed, snapshot.stepIndex, snapshot.totalDuration, recipe.steps.length, cue]);
+  }, [state.status, snapshot.completed, snapshot.stepIndex, snapshot.totalDuration, recipe.steps.length, playCue]);
 
   useEffect(() => {
     if (state.status !== 'running' || !('wakeLock' in navigator)) return;
@@ -65,24 +69,19 @@ export function useBrewTimer(recipe: Recipe, sound: boolean) {
     };
   }, [state.status]);
 
-  useEffect(() => () => { void audio.current?.close(); }, []);
-
-  const prepareSound = useCallback(() => {
-    try {
-      audio.current ??= new AudioContext();
-      void audio.current.resume().catch(() => setNotice('이 브라우저에서 소리를 재생하지 못했습니다. 화면 안내를 확인해 주세요.'));
-    } catch {
-      setNotice('이 브라우저는 소리 알림을 지원하지 않습니다. 화면 안내는 계속 사용할 수 있습니다.');
-    }
+  useEffect(() => () => {
+    chime.current?.dispose();
+    chime.current = null;
   }, []);
 
   const start = useCallback(() => {
-    if (sound) prepareSound();
+    if (soundRef.current) void playCue();
+    else setNotice('');
     if (lastCue.current < 0) lastCue.current = 0;
     const time = Date.now();
     setNow(time);
     setState(previous => startTimer(previous, time));
-  }, [prepareSound, sound]);
+  }, [playCue]);
 
   const pause = useCallback(() => {
     const time = Date.now();
@@ -103,12 +102,21 @@ export function useBrewTimer(recipe: Recipe, sound: boolean) {
   }, []);
 
   const restart = useCallback(() => {
-    if (sound) prepareSound();
+    if (soundRef.current) void playCue();
     lastCue.current = 0;
     const time = Date.now();
     setNow(time);
     setState(startTimer(initialTimer(), time));
-  }, [prepareSound, sound]);
+  }, [playCue]);
 
-  return { status: state.status, snapshot, start, pause, restart, reset, notice, prepareSound };
+  return {
+    status: state.status,
+    snapshot,
+    start,
+    pause,
+    restart,
+    reset,
+    notice,
+    previewSound,
+  };
 }
