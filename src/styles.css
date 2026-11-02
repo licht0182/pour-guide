@@ -1652,8 +1652,15 @@ textarea.field-input {
     flex: 1 1 0;
   }
 
-  .controls .btn-primary {
-    flex-basis: 100%;
+  .controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: 1fr;
+  }
+
+  .controls .btn {
+    font-size: 1.0625rem;
+    border-radius: var(--radius-md);
   }
 
   .footer {
