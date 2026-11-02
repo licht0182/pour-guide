@@ -1254,6 +1254,14 @@ button:disabled {
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
+/* iOS Safari zooms the page when a focused control is under 16px. Keep the
+   layout at its real scale instead of disabling the user's pinch zoom. */
+@media (pointer: coarse), (max-width: 720px) {
+  .field-input {
+    font-size: 16px;
+  }
+}
+
 .field-input:hover {
   border-color: var(--faint);
 }
