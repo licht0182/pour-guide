@@ -39,9 +39,8 @@ export function getTimerSnapshot(recipe: Recipe, elapsedMs: number): TimerSnapsh
   let totalWater = 0;
   for (const step of steps) {
     totalDuration += step.duration;
-    if (step.action === 'pour') totalWater += step.water;
+    if (step.action === 'pour') totalWater = roundTenth(totalWater + step.water);
   }
-  totalWater = roundTenth(totalWater);
 
   if (steps.length === 0) {
     return {

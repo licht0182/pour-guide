@@ -419,7 +419,7 @@ function App() {
                 <div>
                   <p className="step-overline">추출 완료</p>
                   <h3>마지막 한 방울까지, 잘 내렸어요.</h3>
-                  <p>{waterTotal}g의 물과 {active.coffee}g의 원두. 향을 먼저 맡고 천천히 즐겨 보세요.</p>
+                  <p>{waterTotal}g의 물과 {active.coffee}g의 원두로 내린 커피입니다. 향을 먼저 맡고 천천히 즐겨 보세요.</p>
                 </div>
               </div>
             ) : (
