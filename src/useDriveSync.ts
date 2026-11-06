@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Library } from './storage';
-import { authorize, Drive, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
+import { authorize, Drive, DriveAuthError, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
 import type { Entry } from './driveSync';
 
 const KEY = 'pour-guide.drive.entries.v1';
@@ -60,6 +60,10 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       if (JSON.stringify(mergeEntries(remote)) !== JSON.stringify(merged)) await drive.write(merged);
       if (mounted.current && auth.current) setStatus(`동기화 완료 · ${new Date().toLocaleTimeString()}`);
     } catch (error) {
+      if (error instanceof DriveAuthError) {
+        auth.current = null;
+        setConnected(false);
+      }
       if (mounted.current) setStatus(error instanceof Error ? error.message : '동기화에 실패했습니다. 다시 시도해 주세요.');
     } finally {
       working.current = false;

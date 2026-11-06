@@ -145,7 +145,7 @@ function App() {
   // own while the user is reading the result.
   const update = useAppUpdate(updateRefreshBlocked || isComplete, updateRefreshBlocked);
 
-  const driveSync = useDriveSync(library, setLibrary, updateRefreshBlocked);
+  const driveSync = useDriveSync(library, setLibrary, updateRefreshBlocked || isComplete);
 
   useEffect(() => {
     if (!hydrated.current) {

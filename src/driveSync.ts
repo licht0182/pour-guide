@@ -33,12 +33,14 @@ export function trackChanges(entries: Entry[], recipes: Recipe[]): Entry[] {
   return [...previous.values()];
 }
 
+export class DriveAuthError extends Error {}
+
 const API = 'https://www.googleapis.com/drive/v3/files';
 export class Drive {
   constructor(private token: string) {}
   private async request(url: string, init?: RequestInit): Promise<Response> {
     const response = await fetch(url, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${this.token}` } });
-    if (response.status === 401 || response.status === 403) throw new Error('Google Drive 권한을 확인하고 다시 연결해 주세요.');
+    if (response.status === 401 || response.status === 403) throw new DriveAuthError('Google Drive 권한을 확인하고 다시 연결해 주세요.');
     if (!response.ok) throw new Error(`Drive 동기화 실패 (${response.status}). 변경 사항은 브라우저에 보관됩니다.`);
     return response;
   }
