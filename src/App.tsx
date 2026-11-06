@@ -33,6 +33,7 @@ import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
 import type { Library } from './storage';
+import { useDriveSync } from './useDriveSync';
 import { useAppUpdate } from './useAppUpdate';
 import { useBrewFullscreen } from './useBrewFullscreen';
 import { useTheme } from './theme';
@@ -143,6 +144,8 @@ function App() {
   // The completed screen may offer the update, but it must not disappear on its
   // own while the user is reading the result.
   const update = useAppUpdate(updateRefreshBlocked || isComplete, updateRefreshBlocked);
+
+  const driveSync = useDriveSync(library, setLibrary, updateRefreshBlocked);
 
   useEffect(() => {
     if (!hydrated.current) {
@@ -388,8 +391,15 @@ function App() {
             onChange={importRecipe}
           />
           <p className="library-note">
-            <BookOpen size={14} aria-hidden="true" /> 레시피는 이 브라우저에만 저장됩니다.
+            <BookOpen size={14} aria-hidden="true" /> 레시피는 브라우저에 저장되며, Drive 연결 시 클라우드에도 저장됩니다.
           </p>
+          <section className="drive-sync" aria-label="Google Drive 동기화">
+            <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync() : driveSync.connect())}>
+              {driveSync.busy ? '동기화 중…' : driveSync.connected ? '지금 동기화' : 'Google Drive 연결'}
+            </button>
+            {driveSync.connected && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={driveSync.disconnect}>연결 해제</button>}
+            <p className="library-note" role="status">{driveSync.configured ? driveSync.status : 'Google Drive 연동 설정이 필요합니다.'}</p>
+          </section>
           {sidebarNotice && (
             <p className="library-error" role="alert">{sidebarNotice}</p>
           )}
@@ -685,3 +695,4 @@ function App() {
 }
 
 export default App;
+
