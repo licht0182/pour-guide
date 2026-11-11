@@ -34,6 +34,7 @@ import RecipeEditor from './RecipeEditor';
 import DriveLibrary from './DriveLibrary';
 import DriveConnectionStatus from './DriveConnectionStatus';
 import DriveSaveStatus from './DriveSaveStatus';
+import DriveReviewDialog from './DriveReviewDialog';
 import { mergeBackup } from './driveBackup';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
 import type { Library } from './storage';
@@ -148,7 +149,7 @@ function App() {
   // The completed screen may offer the update, but it must not disappear on its
   // own while the user is reading the result.
   const driveSync = useDriveSync(library, setLibrary, updateRefreshBlocked || isComplete);
-  const update = useAppUpdate(updateRefreshBlocked || driveSync.busy || isComplete, updateRefreshBlocked || driveSync.busy);
+  const update = useAppUpdate(updateRefreshBlocked || driveSync.busy || driveSync.review !== null || isComplete, updateRefreshBlocked || driveSync.busy || driveSync.review !== null);
 
   useEffect(() => {
     if (!saveLibrary(library)) {
@@ -397,14 +398,14 @@ function App() {
             <DriveConnectionStatus connection={driveSync.connection} />
             <DriveSaveStatus receipt={driveSync.receipt} />
             <p className="library-note">앱 전용 공간에 저장되어 일반 Drive 파일 목록에는 표시되지 않습니다. 유효한 Google 연결을 이 기기에 저장하여 새로고침·앱 재실행 후 자동 복원합니다.</p>
-            <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync() : driveSync.connect())}>
+            <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync(true) : driveSync.connect())}>
               {driveSync.busy ? '동기화 중…' : driveSync.connected ? '지금 동기화' : 'Google Drive 연결'}
             </button>
             {driveSync.enabled && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={driveSync.disconnect}>연결 해제</button>}
             {driveSync.connected && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={() => void driveSync.checkConnection()}>자동 동기화 연결 확인</button>}
             <p className="library-note" role="status">{driveSync.configured ? driveSync.status : 'Google Drive 연동 설정이 필요합니다.'}</p>
           </section>
-          <DriveLibrary library={library} blocked={isRunning || isPaused || editing !== null || fullscreen.active || driveSync.busy} onBusy={setDriveBusy} onImport={imported => {
+          <DriveLibrary library={library} blocked={isRunning || isPaused || editing !== null || fullscreen.active || driveSync.busy || driveSync.review !== null} onBusy={setDriveBusy} onImport={imported => {
             setLibrary(previous => mergeBackup(previous, imported));
             setPendingDelete(null);
             brew.reset();
@@ -698,6 +699,7 @@ function App() {
           onCancel={() => setEditing(null)}
         />
       )}
+      {driveSync.review && <DriveReviewDialog review={driveSync.review} busy={driveSync.busy} status={driveSync.status} onChoose={driveSync.chooseReview} onDefer={driveSync.deferReview} />}
       {flash && <p className="toast" role="status">{flash}</p>}
     </div>
   );

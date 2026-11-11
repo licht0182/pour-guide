@@ -44,6 +44,9 @@ async function setup(page, { preload = true } = {}) {
 }
 async function connect(page) {
   await page.getByRole('button', { name: 'Google Drive 연결', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Drive와 현재 레시피가 다릅니다' });
+  await expect(page.getByRole('status').filter({ hasText: '동기화 완료' }).or(review)).toBeVisible();
+  if (await review.isVisible()) await review.getByRole('button', { name: 'Drive 내용으로 현재 기기 교체', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
 }
 async function localRecipes(page) {
@@ -62,6 +65,7 @@ test('connects, uploads, applies remote edits and preserves them after reload', 
   expect(state.writes).toHaveLength(1);
   await remoteEdit(page, state, 'Remote recipe');
   await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Drive 내용으로 현재 기기 교체', exact: true }).click();
   await expect.poll(async () => (await localRecipes(page)).some(r => r.name === 'Remote recipe')).toBe(true);
   await page.evaluate(() => sessionStorage.clear());
   await page.reload();
@@ -113,6 +117,7 @@ test('remote changes wait while recipe editor is open', async ({ page }) => {
   await page.waitForTimeout(1500);
   expect((await localRecipes(page)).some(r => r.name === 'Deferred recipe')).toBe(false);
   await page.getByRole('button', { name: '취소', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Drive 내용으로 현재 기기 교체', exact: true }).click();
   await expect.poll(async () => (await localRecipes(page)).some(r => r.name === 'Deferred recipe')).toBe(true);
 });
 
@@ -285,4 +290,81 @@ test('an existing device connection resumes in a newly created tab without Googl
     expect(await other.evaluate(() => window.__oauthRequests)).toBe(0);
     await expect(other.getByRole('button', { name: '지금 동기화', exact: true })).toBeVisible();
   } finally { await other.close(); }
+});
+
+test('remote changes wait for confirmation and declining leaves both sides untouched', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const original = await localRecipes(page);
+  const writes = state.writes.length;
+  await remoteEdit(page, state, 'Other device recipe');
+  await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Drive와 현재 레시피가 다릅니다' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('이름');
+  expect(await localRecipes(page)).toEqual(original);
+  expect(state.writes).toHaveLength(writes);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const bounds = await dialog.boundingBox();
+  expect(bounds.width).toBeLessThanOrEqual(390);
+  await dialog.screenshot({ path: 'output/playwright/drive-review-mobile.png' });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await dialog.getByRole('button', { name: '지금은 덮어쓰지 않기', exact: true }).click();
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.getByRole('status').filter({ hasText: '덮어쓰기를 보류했습니다' })).toBeVisible();
+  expect(await localRecipes(page)).toEqual(original);
+  expect(state.writes).toHaveLength(writes);
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Drive 내용으로 현재 기기 교체', exact: true }).click();
+  await expect.poll(async () => (await localRecipes(page)).some(recipe => recipe.name === 'Other device recipe')).toBe(true);
+  expect(state.writes).toHaveLength(writes);
+});
+
+test('choosing local content replaces the Drive state including cloud-only recipes', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const local = await localRecipes(page);
+  await remoteEdit(page, state, 'Cloud edit');
+  state.snapshots.at(-1).entries.push({ id: 'cloud-only', recipe: { ...local[0], id: 'cloud-only', name: 'Cloud only' }, revision: `${String(Date.now() + 2000).padStart(16, '0')}-cloud` });
+  await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Drive에만 있음');
+  await dialog.getByRole('button', { name: '현재 기기 내용으로 Drive 갱신', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+  expect(await localRecipes(page)).toEqual(local);
+  const saved = state.snapshots.at(-1).entries;
+  expect(saved.find(entry => entry.id === 'cloud-only').recipe).toBeNull();
+  expect(saved.find(entry => entry.id === local[0].id).recipe.name).toBe(local[0].name);
+});
+
+test('a second cloud change during the comparison requires a new confirmation', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const before = await localRecipes(page);
+  await remoteEdit(page, state, 'First remote edit');
+  await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('First remote edit');
+  await remoteEdit(page, state, 'Second remote edit');
+  await dialog.getByRole('button', { name: 'Drive 내용으로 현재 기기 교체', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('다시 변경되었습니다');
+  await expect(dialog).toContainText('Second remote edit');
+  expect(await localRecipes(page)).toEqual(before);
+  await dialog.getByRole('button', { name: 'Drive 내용으로 현재 기기 교체', exact: true }).click();
+  await expect.poll(async () => (await localRecipes(page)).some(recipe => recipe.name === 'Second remote edit')).toBe(true);
+});
+
+test('reloading an unanswered comparison does not apply changes automatically', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const original = await localRecipes(page);
+  await remoteEdit(page, state, 'Awaiting confirmation');
+  await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(await localRecipes(page)).toEqual(original);
+  await page.getByRole('dialog').getByRole('button', { name: '지금은 덮어쓰지 않기', exact: true }).click();
 });
