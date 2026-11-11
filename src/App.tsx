@@ -31,6 +31,8 @@ import type { Recipe, RecipeStep, StepAction } from './types';
 import { ACTION_LABELS, formatTime, getStepFlowRate, getStepSchedule, totalDuration, totalWater } from './recipe';
 import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
+import DriveLibrary from './DriveLibrary';
+import { mergeBackup } from './driveBackup';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
 import type { Library } from './storage';
 import { useDriveSync } from './useDriveSync';
@@ -105,7 +107,6 @@ function ActionIcon({ action, size = 18 }: { action: StepAction; size?: number }
 }
 
 function App() {
-  const hydrated = useRef(false);
   const [library, setLibrary] = useState<Library>(loadLibrary);
   const [editing, setEditing] = useState<Recipe | null>(null);
   const [sound, setSound] = useState(loadSoundPreference);
@@ -113,6 +114,7 @@ function App() {
   const [sidebarNotice, setSidebarNotice] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [driveBusy, setDriveBusy] = useState(false);
   const theme = useTheme();
   const libraryToggle = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -140,7 +142,7 @@ function App() {
   const pouredThisStep = Math.max(0, liveTarget - brew.snapshot.waterBefore);
   const reachedTarget = step.action === 'pour' && !isComplete && liveTarget >= finalStepTarget;
   const fullscreen = useBrewFullscreen();
-  const updateRefreshBlocked = isRunning || isPaused || editing !== null || fullscreen.active;
+  const updateRefreshBlocked = isRunning || isPaused || editing !== null || fullscreen.active || driveBusy;
   // The completed screen may offer the update, but it must not disappear on its
   // own while the user is reading the result.
   const update = useAppUpdate(updateRefreshBlocked || isComplete, updateRefreshBlocked);
@@ -148,10 +150,6 @@ function App() {
   const driveSync = useDriveSync(library, setLibrary, updateRefreshBlocked || isComplete);
 
   useEffect(() => {
-    if (!hydrated.current) {
-      hydrated.current = true;
-      return;
-    }
     if (!saveLibrary(library)) {
       setSidebarNotice('브라우저 저장 공간을 사용할 수 없어 변경 사항이 유지되지 않습니다.');
     }
@@ -394,12 +392,18 @@ function App() {
             <BookOpen size={14} aria-hidden="true" /> 레시피는 브라우저에 저장되며, Drive 연결 시 클라우드에도 저장됩니다.
           </p>
           <section className="drive-sync" aria-label="Google Drive 동기화">
+            <h3>자동 동기화</h3>
             <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync() : driveSync.connect())}>
               {driveSync.busy ? '동기화 중…' : driveSync.connected ? '지금 동기화' : 'Google Drive 연결'}
             </button>
             {driveSync.connected && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={driveSync.disconnect}>연결 해제</button>}
             <p className="library-note" role="status">{driveSync.configured ? driveSync.status : 'Google Drive 연동 설정이 필요합니다.'}</p>
           </section>
+          <DriveLibrary library={library} blocked={isRunning || isPaused || editing !== null || fullscreen.active || driveSync.busy} onBusy={setDriveBusy} onImport={imported => {
+            setLibrary(previous => mergeBackup(previous, imported));
+            setPendingDelete(null);
+            brew.reset();
+          }} />
           {sidebarNotice && (
             <p className="library-error" role="alert">{sidebarNotice}</p>
           )}

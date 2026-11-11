@@ -1,3 +1,7 @@
 node_modules/
 dist/
 *.local
+.playwright-cli/
+output/playwright/
+test-results/
+playwright-report/
