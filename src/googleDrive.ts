@@ -3,7 +3,7 @@ import type { Library } from './storage';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const API = 'https://www.googleapis.com/drive/v3/files';
-export const driveClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '13512728967-har10rro8sukm1fmlsk3j8p1fapv6emb.apps.googleusercontent.com').trim();
+export const driveClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '13512728967-g0g2e77gjmlrgu626gpsp8s6q5rr59m3.apps.googleusercontent.com').trim();
 
 interface TokenResponse { access_token?: string; expires_in?: number; error?: string }
 interface OAuth {
