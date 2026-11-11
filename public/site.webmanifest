@@ -6,10 +6,10 @@
   "start_url": "/pour-guide/",
   "scope": "/pour-guide/",
   "display": "standalone",
-  "background_color": "#261F1B",
+  "background_color": "#070d18",
   "theme_color": "#f2f2f7",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icons/liquid-glass-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/liquid-glass-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }
