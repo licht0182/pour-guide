@@ -264,7 +264,7 @@ function App() {
       <header className="topbar" inert={fullscreen.active}>
         <a className="brand" href={import.meta.env.BASE_URL} aria-label="Pour Guide 홈">
           <span className="brand-mark" aria-hidden="true">
-            <img src={`${import.meta.env.BASE_URL}favicon.svg?v=coffee-1`} alt="" width={34} height={34} />
+            <img src={`${import.meta.env.BASE_URL}icons/liquid-glass-192.png?v=glass-1`} alt="" width={34} height={34} />
           </span>
           <span>
             <strong>Pour Guide</strong>
