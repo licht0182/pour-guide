@@ -264,10 +264,7 @@ function App() {
       <header className="topbar" inert={fullscreen.active}>
         <a className="brand" href={import.meta.env.BASE_URL} aria-label="Pour Guide 홈">
           <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 40 40" width="30" height="30" fill="none">
-              <path d="M8 13.5h24L22.5 29h-5L8 13.5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-              <path d="M14 8h12M15 33h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <img src={`${import.meta.env.BASE_URL}favicon.svg?v=coffee-1`} alt="" width={34} height={34} />
           </span>
           <span>
             <strong>Pour Guide</strong>
