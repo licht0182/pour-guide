@@ -1,6 +1,7 @@
 import { parseRecipe } from './recipe';
 import type { Recipe } from './types';
 import { driveResponseError } from './driveErrors';
+import { connectDrive, loadGoogleIdentity } from './googleDrive';
 export { DriveAuthError } from './driveErrors';
 
 export interface Entry { id: string; revision: string; recipe: Recipe | null }
@@ -76,33 +77,7 @@ export class Drive {
   }
 }
 
-type TokenClient = { requestAccessToken: (options: { prompt: string }) => void };
-interface GoogleIdentity { accounts: { oauth2: {
-  initTokenClient: (config: { client_id: string; scope: string; include_granted_scopes: boolean; callback: (response: { access_token?: string; expires_in?: number; error?: string }) => void; error_callback: () => void }) => TokenClient;
-  hasGrantedAllScopes: (response: { access_token?: string; expires_in?: number; error?: string }, scope: string) => boolean;
-  revoke: (token: string, callback: () => void) => void;
-} } }
-declare global { interface Window { google?: GoogleIdentity } }
-let identityLoading: Promise<void> | undefined;
-export async function authorize(clientId: string): Promise<{ token: string; expires: number }> {
-  if (!window.google) {
-    identityLoading ??= new Promise<void>((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => { identityLoading = undefined; script.remove(); reject(new Error('Google 로그인 스크립트를 불러올 수 없습니다.')); };
-      document.head.append(script);
-    });
-    await identityLoading;
-  }
-  return new Promise((resolve, reject) => {
-    window.google!.accounts.oauth2.initTokenClient({
-      client_id: clientId, scope: 'https://www.googleapis.com/auth/drive.appdata', include_granted_scopes: false,
-      callback: response => response.access_token && !response.error && window.google!.accounts.oauth2.hasGrantedAllScopes(response, 'https://www.googleapis.com/auth/drive.appdata')
-        ? resolve({ token: response.access_token, expires: Date.now() + (response.expires_in ?? 3600) * 1000 })
-        : reject(new Error('Google Drive 앱 저장 공간 권한이 승인되지 않았습니다. 다시 연결해 Drive 권한을 허용해 주세요.')),
-      error_callback: () => reject(new Error('로그인 창이 닫혔거나 차단되었습니다. 다시 연결해 주세요.')),
-    }).requestAccessToken({ prompt: 'select_account' });
-  });
+export function authorize(_clientId: string): Promise<{ token: string; expires: number }> {
+  const begin = () => connectDrive().then(session => ({ token: session.token, expires: session.expiresAt }));
+  return window.google?.accounts.oauth2 ? begin() : loadGoogleIdentity().then(begin);
 }

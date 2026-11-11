@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession } from './driveSession';
+import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { driveClientId } from './googleDrive';
 
 function storage() {
   const values = new Map<string, string>();
@@ -13,18 +14,18 @@ describe('Drive reload persistence', () => {
     const session = { token: 'valid', expiresAt: Date.now() + 3600000 };
     expect(saveDriveSession('sync', session)).toBe(true);
     expect(loadDriveSession('sync')).toEqual(session);
-    expect(loadDriveSession('backup')).toBeNull();
+    expect(loadDriveSession('backup')).toEqual(session);
     expect(driveWasEnabled('sync')).toBe(true);
-    expect(localStorage.getItem('pour-guide.drive.sync.session.v1')).not.toBeNull();
-    sessionStorage.removeItem('pour-guide.drive.sync.session.v1');
+    expect(localStorage.getItem('pour-guide.drive.session.v2')).not.toBeNull();
+    sessionStorage.removeItem('pour-guide.drive.session.v2');
     expect(loadDriveSession('sync')).toEqual(session);
   });
   it('remembers the enabled preference but discards expired credentials', () => {
     saveDriveSession('sync', { token: 'expired', expiresAt: Date.now() - 1 });
     expect(loadDriveSession('sync')).toBeNull();
     expect(driveWasEnabled('sync')).toBe(true);
-    expect(sessionStorage.getItem('pour-guide.drive.sync.session.v1')).toBeNull();
-    expect(localStorage.getItem('pour-guide.drive.sync.session.v1')).toBeNull();
+    expect(sessionStorage.getItem('pour-guide.drive.session.v2')).toBeNull();
+    expect(localStorage.getItem('pour-guide.drive.session.v2')).toBeNull();
   });
   it('does not discard a token before its actual Google expiry', () => {
     const session = { token: 'still-valid', expiresAt: Date.now() + 15000 };
@@ -33,7 +34,7 @@ describe('Drive reload persistence', () => {
   });
   it('does not restore malformed data or another OAuth client', () => {
     for (const value of ['{', 'null', JSON.stringify({ clientId: 'another-client', token: 'token', expiresAt: Date.now() + 3600000 })]) {
-      sessionStorage.setItem('pour-guide.drive.sync.session.v1', value);
+      sessionStorage.setItem('pour-guide.drive.session.v2', value);
       expect(loadDriveSession('sync')).toBeNull();
     }
   });
@@ -59,18 +60,16 @@ describe('Drive reload persistence', () => {
   });
   it('migrates the old tab-only session without another login', () => {
     const session = { token: 'legacy', expiresAt: Date.now() + 3600000 };
-    saveDriveSession('backup', session);
     const name = 'pour-guide.drive.backup.session.v1';
-    localStorage.removeItem(name);
-    const legacy = JSON.parse(sessionStorage.getItem(name)!);
-    delete legacy.savedAt;
+    const legacy = { ...session, clientId: driveClientId };
     sessionStorage.setItem(name, JSON.stringify(legacy));
     expect(loadDriveSession('backup')).toEqual(session);
-    expect(JSON.parse(localStorage.getItem(name)!).token).toBe('legacy');
+    expect(JSON.parse(localStorage.getItem('pour-guide.drive.session.v2')!).token).toBe('legacy');
+    expect(sessionStorage.getItem(name)).toBeNull();
   });
   it('selects the newest valid session if the storage copies differ', () => {
     saveDriveSession('sync', { token: 'older', expiresAt: Date.now() + 3600000 });
-    const name = 'pour-guide.drive.sync.session.v1';
+    const name = 'pour-guide.drive.session.v2';
     const newer = JSON.parse(sessionStorage.getItem(name)!);
     newer.token = 'newer';
     newer.savedAt += 1;
@@ -83,5 +82,45 @@ describe('Drive reload persistence', () => {
     const session = { token: 'temporary', expiresAt: Date.now() + 3600000 };
     expect(saveDriveSession('sync', session)).toBe(false);
     expect(loadDriveSession('sync')).toEqual(session);
+  });
+  it('notifies both consumers and clears the shared credential from either panel', () => {
+    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    const changes = vi.fn();
+    const unsubscribe = subscribeDriveSession(changes);
+    try {
+      saveDriveSession('backup', { token: 'shared', expiresAt: Date.now() + 3600000 });
+      expect(loadDriveSession('sync')?.token).toBe('shared');
+      expect(driveWasEnabled('sync')).toBe(false);
+      enableDriveSync();
+      expect(driveWasEnabled('sync')).toBe(true);
+      clearDriveSession('sync');
+      expect(loadDriveSession('backup')).toBeNull();
+      expect(changes).toHaveBeenCalledTimes(2);
+      forgetDrive('backup');
+      expect(driveWasEnabled('sync')).toBe(false);
+      expect(driveWasEnabled('backup')).toBe(false);
+    } finally { unsubscribe(); }
+  });
+  it('migrates independent legacy accounts conservatively and never revives them after disconnect', () => {
+    const expiresAt = Date.now() + 3600000;
+    localStorage.setItem('pour-guide.drive.sync.session.v1', JSON.stringify({ token: 'older-account', expiresAt, savedAt: 1, clientId: driveClientId }));
+    localStorage.setItem('pour-guide.drive.backup.session.v1', JSON.stringify({ token: 'newer-account', expiresAt, savedAt: 2, clientId: driveClientId }));
+    enableDriveSync();
+    expect(loadDriveSession('sync')?.token).toBe('newer-account');
+    expect(driveWasEnabled('sync')).toBe(false);
+    forgetDrive('backup');
+    expect(loadDriveSession('sync')).toBeNull();
+    expect(localStorage.getItem('pour-guide.drive.sync.session.v1')).toBeNull();
+  });
+  it('discards a tab copy when another tab disconnects', () => {
+    let onStorage: ((event: { key: string; newValue: null }) => void) | undefined;
+    vi.stubGlobal('window', { addEventListener: (_: string, callback: typeof onStorage) => { onStorage = callback; }, removeEventListener: vi.fn() });
+    const unsubscribe = subscribeDriveSession(() => { loadDriveSession('sync'); });
+    try {
+      saveDriveSession('sync', { token: 'shared', expiresAt: Date.now() + 3600000 });
+      localStorage.removeItem('pour-guide.drive.session.v2');
+      onStorage?.({ key: 'pour-guide.drive.session.v2', newValue: null });
+      expect(loadDriveSession('sync')).toBeNull();
+    } finally { unsubscribe(); }
   });
 });

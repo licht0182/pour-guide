@@ -15,10 +15,11 @@ interface OAuth {
     error_callback: () => void;
   }): { requestAccessToken(options: { prompt: string }): void };
   hasGrantedAllScopes(response: TokenResponse, scope: string): boolean;
+  revoke(token: string, callback: () => void): void;
 }
-// The automatic sync module owns Window.google; both use the same Google SDK.
+declare global { interface Window { google?: { accounts: { oauth2: OAuth } } } }
 function oauthApi(): OAuth | undefined {
-  return window.google?.accounts.oauth2 as unknown as OAuth | undefined;
+  return window.google?.accounts.oauth2;
 }
 
 let loading: Promise<void> | undefined;
@@ -48,7 +49,17 @@ export function loadGoogleIdentity(): Promise<void> {
 }
 
 // Called directly from a click: opening the OAuth popup must retain user activation.
+let connecting: Promise<{ token: string; expiresAt: number }> | undefined;
 export function connectDrive(): Promise<{ token: string; expiresAt: number }> {
+  if (connecting) return connecting;
+  const pending = requestDriveToken();
+  connecting = pending;
+  const finished = () => { if (connecting === pending) connecting = undefined; };
+  void pending.then(finished, finished);
+  return pending;
+}
+
+function requestDriveToken(): Promise<{ token: string; expiresAt: number }> {
   return new Promise((resolve, reject) => {
     const oauth = oauthApi();
     if (!oauth || !driveClientId) { reject(new Error('Google 로그인 설정을 확인해 주세요.')); return; }

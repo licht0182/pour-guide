@@ -5,7 +5,7 @@ import { connectDrive, driveClientId, DriveAuthError, listDriveBackups, loadGoog
 import type { DriveBackup } from './googleDrive';
 import DriveConnectionStatus, { disconnectedDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
-import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession } from './driveSession';
+import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import type { DriveReceipt } from './driveSession';
 import DriveSaveStatus from './DriveSaveStatus';
 
@@ -14,6 +14,8 @@ interface Props { library: Library; blocked: boolean; onImport: (library: Librar
 export default function DriveLibrary({ library, blocked, onImport, onBusy }: Props) {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState(() => loadDriveSession('backup'));
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   const [receipt, setReceipt] = useState<DriveReceipt | null>(() => loadDriveReceipt('backup'));
   const [busy, setBusy] = useState(false);
   const [backups, setBackups] = useState<DriveBackup[]>([]);
@@ -30,17 +32,28 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
     void loadGoogleIdentity().then(() => setReady(true)).catch(error => setError(error.message));
   };
   useEffect(() => { if (driveClientId) prepare(); }, []);
+  useEffect(() => subscribeDriveSession(() => {
+    const next = loadDriveSession('backup');
+    if (next && next.token === sessionRef.current?.token && next.expiresAt === sessionRef.current?.expiresAt) return;
+    sessionRef.current = next;
+    setSession(next);
+    setReceipt(loadDriveReceipt('backup'));
+    setBackups([]); setSelected(''); setError('');
+    setConnection(next ? { state: 'unverified', checkedAt: null } : disconnectedDrive);
+    setMessage(next ? '자동 동기화와 공유한 Google 연결을 사용합니다.' : '공유 Google 연결이 해제되었거나 만료되었습니다. 다시 연결해 주세요.');
+  }), []);
   useEffect(() => {
-    const saved = loadDriveSession('backup');
+    const saved = session;
     if (saved) void run(async () => {
       await refresh(saved.token);
-      setMessage('저장된 Google 연결과 Drive 백업 목록을 복원했습니다.');
+      if (sessionRef.current?.token === saved.token) setMessage('저장된 Google 연결과 Drive 백업 목록을 복원했습니다.');
     });
     else if (driveWasEnabled('backup')) setMessage('백업 연결 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.');
-  }, []);
+  }, [session]);
   useEffect(() => {
     if (!session) return;
     const timeout = window.setTimeout(() => {
+      if (sessionRef.current?.token !== session.token) return;
       setSession(null);
       clearDriveSession('backup');
       setConnection(disconnectedDrive);
@@ -58,26 +71,33 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
     onBusy(true);
     setError('');
     setMessage('');
+    const token = sessionRef.current?.token;
     try { await action(); }
     catch (error) {
+      if (token && token !== sessionRef.current?.token) return;
       if (error instanceof DriveAuthError) {
         setSession(null); setBackups([]); setSelected('');
         clearDriveSession('backup');
         setConnection(previous => ({ ...previous, state: 'error' }));
       }
       setError(error instanceof Error ? error.message : 'Drive 작업을 완료하지 못했습니다. 다시 시도해 주세요.');
-    } finally { lock.current = false; setBusy(false); onBusy(false); }
+    } finally {
+      lock.current = false; setBusy(false); onBusy(false);
+      const next = sessionRef.current;
+      if (token && next && next.token !== token) void run(() => refresh(next.token));
+    }
   }
 
   async function refresh(token: string) {
     setConnection(previous => ({ ...previous, state: 'checking' }));
     try {
       const files = await listDriveBackups(token);
+      if (sessionRef.current?.token !== token) return;
       setBackups(files);
       setSelected(previous => files.some(file => file.id === previous) ? previous : files[0]?.id ?? '');
       setConnection({ state: 'verified', checkedAt: Date.now() });
     } catch (error) {
-      setConnection(previous => ({ ...previous, state: 'error' }));
+      if (sessionRef.current?.token === token) setConnection(previous => ({ ...previous, state: 'error' }));
       throw error;
     }
   }
@@ -87,6 +107,7 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
       <summary><h3><Cloud size={17} aria-hidden="true" /> 수동 Drive 백업</h3></summary>
       <div className="drive-disclosure-content">
     <DriveConnectionStatus connection={connection} />
+    <p>Google 연결은 자동 동기화와 공유합니다. 여기서 연결을 해제하면 양쪽 연결이 해제됩니다.</p>
     <DriveSaveStatus receipt={receipt} />
     <p>보관함 전체를 백업하고 다른 기기에서 가져오세요. 앱 전용 공간에 저장되어 일반 Drive 파일 목록에는 표시되지 않습니다.</p>
     {!driveClientId ? <p>Drive 연동 준비 중입니다. 관리자 설정 후 연결할 수 있습니다.</p> : <>
@@ -97,8 +118,11 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
           let connection;
           try { connection = await connectDrive(); }
           catch (error) { setConnection({ state: 'error', checkedAt: null }); throw error; }
-          await refresh(connection.token);
           const remembered = saveDriveSession('backup', connection);
+          sessionRef.current = connection;
+          setSession(connection);
+          await refresh(connection.token);
+          if (sessionRef.current?.token !== connection.token) return;
           saveDriveReceipt('backup', null);
           setReceipt(null);
           setSession(connection);
@@ -107,11 +131,12 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
       }}>{ready ? 'Google 계정 연결' : error ? '로그인 다시 준비' : '로그인 준비 중…'}</button> : <>
         <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => void run(async () => {
           await refresh(session.token);
-          setMessage('연결 확인 완료 · 레시피를 변경하지 않고 Drive 응답을 확인했습니다.');
+          if (sessionRef.current?.token === session.token) setMessage('연결 확인 완료 · 레시피를 변경하지 않고 Drive 응답을 확인했습니다.');
         })}>백업 연결 확인</button>
         <div className="drive-actions">
           <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void run(async () => {
             await saveDriveBackup(session.token, library);
+            if (sessionRef.current?.token !== session.token) return;
             const confirmed = { confirmedAt: Date.now(), recipeCount: library.recipes.length };
             saveDriveReceipt('backup', confirmed);
             setReceipt(confirmed);
@@ -127,14 +152,17 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
         </select>
         <button className="btn btn-secondary" type="button" disabled={busy || blocked || !selected} onClick={() => void run(async () => {
           const imported = await readDriveBackup(session.token, selected);
+          if (sessionRef.current?.token !== session.token) return;
           if (latest.current.blocked) throw new Error('추출과 편집을 마친 뒤 가져와 주세요.');
           latest.current.onImport(imported);
           setMessage('백업을 가져왔습니다. 같은 레시피는 건너뛰고, 다른 내용은 별도로 보존했습니다.');
         })}><Download size={16} /> 선택한 백업 가져오기</button>
         <p>현재 레시피를 유지하며 병합합니다. 추출·편집 중에는 가져올 수 없습니다.</p>
         <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => {
+          const token = sessionRef.current?.token;
           setSession(null); setBackups([]); setSelected(''); setError(''); setMessage('이 기기의 연결을 해제했습니다. Drive 백업은 유지됩니다.');
           forgetDrive('backup');
+          if (token) window.google?.accounts.oauth2.revoke(token, () => {});
           setReceipt(null);
           setConnection(disconnectedDrive);
         }}>이 기기 연결 해제</button>

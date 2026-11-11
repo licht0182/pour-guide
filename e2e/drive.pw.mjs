@@ -246,7 +246,7 @@ test('expired saved credentials retain the sync preference but never claim a liv
   await setup(page);
   await connect(page);
   await page.evaluate(() => {
-    const key = 'pour-guide.drive.sync.session.v1';
+    const key = 'pour-guide.drive.session.v2';
     for (const storage of [localStorage, sessionStorage]) {
       const session = JSON.parse(storage.getItem(key));
       session.expiresAt = Date.now() - 1;
@@ -259,7 +259,7 @@ test('expired saved credentials retain the sync preference but never claim a liv
   await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toBeVisible();
   await expect(section.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
   await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toHaveCount(0);
-  expect(await page.evaluate(() => sessionStorage.getItem('pour-guide.drive.sync.session.v1'))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem('pour-guide.drive.session.v2'))).toBeNull();
   await section.getByRole('button', { name: '연결 해제', exact: true }).click();
   await page.reload();
   await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toHaveCount(0);
@@ -382,4 +382,70 @@ test('reloading an unanswered comparison does not apply changes automatically', 
   await expect(page.getByRole('dialog')).toBeVisible();
   expect(await localRecipes(page)).toEqual(original);
   await page.getByRole('dialog').getByRole('button', { name: '지금은 덮어쓰지 않기', exact: true }).click();
+});
+
+test('automatic sync login also connects manual backups and logout clears both', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const backup = page.getByRole('region', { name: 'Google Drive 백업', exact: true });
+  await expect(backup.getByRole('button', { name: 'Drive에 저장', exact: true })).toBeVisible();
+  await expect(backup.getByRole('button', { name: 'Google 계정 연결', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(1);
+  await backup.getByRole('button', { name: 'Drive에 저장', exact: true }).click();
+  await expect(backup.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toBeVisible();
+  expect(state.backups).toHaveLength(1);
+  await backup.getByRole('button', { name: '이 기기 연결 해제', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
+  await expect(backup.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
+  await page.reload();
+  await expandDrive(page);
+  await expect(page.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
+  await expect(backup.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
+});
+
+test('manual backup login shares authentication without starting automatic uploads', async ({ page }) => {
+  const state = await setup(page);
+  const backup = page.getByRole('region', { name: 'Google Drive 백업', exact: true });
+  await backup.getByRole('button', { name: 'Google 계정 연결', exact: true }).click();
+  await expect(backup.getByRole('button', { name: 'Drive에 저장', exact: true })).toBeVisible();
+  const sync = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
+  await expect(sync.getByRole('button', { name: '자동 동기화 시작', exact: true })).toBeVisible();
+  await expect(sync.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toBeVisible();
+  expect(state.writes).toHaveLength(0);
+  expect(state.backups).toHaveLength(0);
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(1);
+  await sync.getByRole('button', { name: '자동 동기화 시작', exact: true }).click();
+  await expect(sync.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(1);
+  await sync.getByRole('button', { name: '연결 해제', exact: true }).click();
+  await expect(backup.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
+});
+
+test('authorization failure in backups invalidates the shared sync connection', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const backup = page.getByRole('region', { name: 'Google Drive 백업', exact: true });
+  state.unauthorized = true;
+  await backup.getByRole('button', { name: '백업 연결 확인', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
+  await expect(backup.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('pour-guide.drive.session.v2'))).toBeNull();
+  await page.getByRole('button', { name: '연결 해제', exact: true }).click();
+  await expect(page.getByRole('button', { name: '연결 해제', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toHaveCount(0);
+});
+
+test('shared logout propagates to another tab without resurrecting cached tokens', async ({ page, context }) => {
+  const state = await setup(page);
+  await connect(page);
+  const other = await context.newPage();
+  try {
+    const remote = await setup(other);
+    remote.snapshots = state.snapshots;
+    await expect(other.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+    await page.getByRole('button', { name: '연결 해제', exact: true }).click();
+    await expect(other.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
+    await expect(other.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
+    expect(await other.evaluate(() => sessionStorage.getItem('pour-guide.drive.session.v2'))).toBeNull();
+  } finally { await other.close(); }
 });
