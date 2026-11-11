@@ -66,7 +66,7 @@ MIT
 
 ## Google Drive 클라우드 동기화
 
-Pages 빌드는 제공된 웹 클라이언트 ID `13512728967-har10rro8sukm1fmlsk3j8p1fapv6emb.apps.googleusercontent.com`를 기본으로 사용합니다. 아래 Actions 변수를 설정하면 해당 값으로 변경할 수 있습니다. 로컬 개발은 `.env.local` 설정이 필요합니다. 개발 원본에는 실제 사용 중인 `http://127.0.0.1:5173`도 등록하세요.
+Pages 빌드는 제공된 웹 클라이언트 ID `13512728967-g0g2e77gjmlrgu626gpsp8s6q5rr59m3.apps.googleusercontent.com`를 기본으로 사용합니다. 아래 Actions 변수를 설정하면 해당 값으로 변경할 수 있습니다. 로컬 개발은 `.env.local` 설정이 필요합니다. 개발 원본에는 실제 사용 중인 `http://127.0.0.1:5173`도 등록하세요.
 
 1. Google Cloud 프로젝트에서 **Google Drive API**를 활성화하고 OAuth 동의 화면을 설정합니다. 테스트 모드라면 사용할 계정을 테스트 사용자로 등록합니다.
 2. **웹 애플리케이션** OAuth 클라이언트를 만들고 승인된 JavaScript 원본에 개발 서버 원본(예: `http://localhost:5173`)과 배포 원본(`https://licht0182.github.io`)을 등록합니다. 원본에는 `/pour-guide/` 경로를 붙이지 않습니다.
