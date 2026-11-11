@@ -32,6 +32,7 @@ import { ACTION_LABELS, formatTime, getStepFlowRate, getStepSchedule, totalDurat
 import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
 import DriveLibrary from './DriveLibrary';
+import DriveConnectionStatus from './DriveConnectionStatus';
 import { mergeBackup } from './driveBackup';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
 import type { Library } from './storage';
@@ -393,10 +394,12 @@ function App() {
           </p>
           <section className="drive-sync" aria-label="Google Drive 동기화">
             <h3>자동 동기화</h3>
+            <DriveConnectionStatus connection={driveSync.connection} />
             <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync() : driveSync.connect())}>
               {driveSync.busy ? '동기화 중…' : driveSync.connected ? '지금 동기화' : 'Google Drive 연결'}
             </button>
             {driveSync.connected && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={driveSync.disconnect}>연결 해제</button>}
+            {driveSync.connected && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={() => void driveSync.checkConnection()}>자동 동기화 연결 확인</button>}
             <p className="library-note" role="status">{driveSync.configured ? driveSync.status : 'Google Drive 연동 설정이 필요합니다.'}</p>
           </section>
           <DriveLibrary library={library} blocked={isRunning || isPaused || editing !== null || fullscreen.active || driveSync.busy} onBusy={setDriveBusy} onImport={imported => {

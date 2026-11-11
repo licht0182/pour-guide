@@ -3,10 +3,11 @@ import { test, expect } from '@playwright/test';
 // Run the production bundle in Chromium. Only Google endpoints are replaced;
 // React, localStorage, timers, navigation and user interactions are real.
 async function setup(page, { preload = true } = {}) {
-  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, failUpload: false, hold: null };
+  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, failUpload: false, listFailure: 0, hold: null };
   await page.route('https://www.googleapis.com/**', async route => {
     if (state.unauthorized) return route.fulfill({ status: 401, body: '{}' });
     const url = new URL(route.request().url());
+    if (state.listFailure && route.request().method() === 'GET') return route.fulfill({ status: state.listFailure, body: '{}' });
     if (route.request().method() === 'POST') {
       const body = route.request().postData();
       if (body.includes('"format":"pour-guide"')) {
@@ -121,4 +122,58 @@ test('manual backups preserve conflicting recipes and skip repeated imports', as
   expect((await localRecipes(page)).length).toBe(initial.length + 1);
   await page.getByRole('button', { name: '추출 시작', exact: true }).click();
   await expect(page.getByRole('button', { name: '선택한 백업 가져오기', exact: true })).toBeDisabled();
+});
+
+test('automatic connection check verifies Drive without changing recipes or uploading', async ({ page }) => {
+  const state = await setup(page);
+  const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 미연결' })).toBeVisible();
+  await connect(page);
+  await remoteEdit(page, state, 'Unapplied server edit');
+  const recipes = await localRecipes(page);
+  const writes = state.writes.length;
+  await section.getByRole('button', { name: '자동 동기화 연결 확인', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: '연결 확인 완료' })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toContainText('최근 확인:');
+  expect(await localRecipes(page)).toEqual(recipes);
+  expect(state.writes.length).toBe(writes);
+  state.unauthorized = true;
+  await section.getByRole('button', { name: '자동 동기화 연결 확인', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인 실패' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toHaveCount(0);
+});
+
+test('manual connection check requires a Drive response, handles errors and recovers', async ({ page }) => {
+  const state = await setup(page);
+  const section = page.getByRole('region', { name: 'Google Drive 백업', exact: true });
+  state.unauthorized = true;
+  await section.getByRole('button', { name: 'Google 계정 연결', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인 실패' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Drive에 저장', exact: true })).toHaveCount(0);
+  state.unauthorized = false;
+  await section.getByRole('button', { name: 'Google 계정 연결', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toBeVisible();
+  const recipes = await localRecipes(page);
+  await section.getByRole('button', { name: '백업 연결 확인', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: '연결 확인 완료' })).toBeVisible();
+  expect(state.backups).toHaveLength(0);
+  expect(await localRecipes(page)).toEqual(recipes);
+  state.listFailure = 503;
+  await section.getByRole('button', { name: '백업 연결 확인', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인 실패' })).toBeVisible();
+  await expect(section.getByRole('alert')).toContainText('503');
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toHaveCount(0);
+  state.listFailure = 0;
+  await section.getByRole('button', { name: '백업 연결 확인', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: /레시피 선택/ }).click();
+  await section.scrollIntoViewIfNeeded();
+  const bounds = await section.boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  await section.screenshot({ path: 'output/playwright/drive-connection-mobile.png' });
+  await section.getByRole('button', { name: '이 기기 연결 해제', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 미연결' })).toBeVisible();
 });
