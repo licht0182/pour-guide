@@ -68,7 +68,11 @@ export class Drive {
     const boundary = `pour_${crypto.randomUUID()}`;
     const metadata = { name: 'pour-guide-library-v1.json', parents: ['appDataFolder'] };
     const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ version: 1, entries })}\r\n--${boundary}--`;
-    await this.request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
+    const file = await (await this.request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body })).json();
+    if (typeof file?.id !== 'string' || !file.id) throw new Error('Drive 저장 결과를 확인하지 못했습니다. 다시 동기화해 주세요.');
+    const saved = parseSnapshot(await (await this.request(`${API}/${encodeURIComponent(file.id)}?alt=media`)).json());
+    const expected = parseSnapshot({ version: 1, entries });
+    if (JSON.stringify(mergeEntries(saved.entries)) !== JSON.stringify(mergeEntries(expected.entries))) throw new Error('Drive에 저장된 내용이 일치하지 않습니다. 로컬 레시피는 유지됩니다. 다시 동기화해 주세요.');
   }
 }
 

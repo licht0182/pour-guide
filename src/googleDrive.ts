@@ -93,9 +93,12 @@ export async function saveDriveBackup(token: string, library: Library): Promise<
   const boundary = `pour_guide_${crypto.randomUUID()}`;
   const metadata = { name: `Pour Guide ${new Date().toISOString()}.json`, parents: ['appDataFolder'], appProperties: { app: 'pour-guide' } };
   const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${json}\r\n--${boundary}--`;
-  await request(token, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+  const file = await (await request(token, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
     method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
-  });
+  })).json();
+  if (typeof file?.id !== 'string' || !file.id) throw new Error('Drive 백업의 저장 결과를 확인하지 못했습니다. 다시 저장해 주세요.');
+  const saved = await readDriveBackup(token, file.id);
+  if (JSON.stringify(saved) !== JSON.stringify(decodeBackup(json))) throw new Error('Drive에 저장된 백업 내용이 일치하지 않습니다. 다시 저장해 주세요.');
 }
 
 export async function readDriveBackup(token: string, id: string): Promise<Library> {
