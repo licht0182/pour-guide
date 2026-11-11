@@ -232,13 +232,14 @@ h3 {
 }
 
 .brand-mark {
-  display: grid;
   width: 34px;
   height: 34px;
-  color: var(--on-dark);
-  background: var(--accent);
-  border-radius: 10px;
-  place-items: center;
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .brand strong {
