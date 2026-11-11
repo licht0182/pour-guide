@@ -396,7 +396,7 @@ function App() {
             <h3>자동 동기화</h3>
             <DriveConnectionStatus connection={driveSync.connection} />
             <DriveSaveStatus receipt={driveSync.receipt} />
-            <p className="library-note">앱 전용 공간에 저장되어 일반 Drive 파일 목록에는 표시되지 않습니다. 유효한 연결은 이 탭의 새로고침 후 자동 복원됩니다.</p>
+            <p className="library-note">앱 전용 공간에 저장되어 일반 Drive 파일 목록에는 표시되지 않습니다. 유효한 Google 연결을 이 기기에 저장하여 새로고침·앱 재실행 후 자동 복원합니다.</p>
             <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync() : driveSync.connect())}>
               {driveSync.busy ? '동기화 중…' : driveSync.connected ? '지금 동기화' : 'Google Drive 연결'}
             </button>

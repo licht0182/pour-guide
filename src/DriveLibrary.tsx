@@ -36,7 +36,7 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
       await refresh(saved.token);
       setMessage('저장된 Google 연결과 Drive 백업 목록을 복원했습니다.');
     });
-    else if (driveWasEnabled('backup')) setMessage('백업 연결 설정은 저장되어 있습니다. 인증이 만료되었거나 새 탭입니다. Google 계정을 다시 연결해 주세요.');
+    else if (driveWasEnabled('backup')) setMessage('백업 연결 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.');
   }, []);
   useEffect(() => {
     if (!session) return;
@@ -100,7 +100,7 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
           saveDriveReceipt('backup', null);
           setReceipt(null);
           setSession(connection);
-          setMessage(remembered ? '연결했습니다. 새로고침 후에도 유효한 연결이 복원됩니다.' : '연결했습니다. 브라우저 저장 공간을 사용할 수 없어 새로고침 후에는 재연결이 필요합니다.');
+          setMessage(remembered ? '이 기기에 연결을 저장했습니다. 새로고침하거나 앱을 다시 열어도 유효한 연결이 복원됩니다.' : '연결했습니다. 이 기기에 인증을 저장하지 못해 앱을 다시 열면 재연결이 필요할 수 있습니다. 브라우저 저장 공간 설정을 확인해 주세요.');
         });
       }}>{ready ? 'Google 계정 연결' : error ? '로그인 다시 준비' : '로그인 준비 중…'}</button> : <>
         <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => void run(async () => {

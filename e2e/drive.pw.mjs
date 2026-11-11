@@ -63,6 +63,7 @@ test('connects, uploads, applies remote edits and preserves them after reload', 
   await remoteEdit(page, state, 'Remote recipe');
   await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
   await expect.poll(async () => (await localRecipes(page)).some(r => r.name === 'Remote recipe')).toBe(true);
+  await page.evaluate(() => sessionStorage.clear());
   await page.reload();
   await expect(page.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
   expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
@@ -209,6 +210,7 @@ test('manual backup connection, selection and verified receipt survive a reload'
   await section.getByRole('button', { name: 'Google 계정 연결', exact: true }).click();
   await section.getByRole('button', { name: 'Drive에 저장', exact: true }).click();
   await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toBeVisible();
+  await page.evaluate(() => sessionStorage.clear());
   await page.reload();
   await expect(section.getByRole('status').filter({ hasText: '저장된 Google 연결과 Drive 백업 목록을 복원했습니다' })).toBeVisible();
   expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
@@ -226,9 +228,11 @@ test('expired saved credentials retain the sync preference but never claim a liv
   await connect(page);
   await page.evaluate(() => {
     const key = 'pour-guide.drive.sync.session.v1';
-    const session = JSON.parse(sessionStorage.getItem(key));
-    session.expiresAt = Date.now() - 1;
-    sessionStorage.setItem(key, JSON.stringify(session));
+    for (const storage of [localStorage, sessionStorage]) {
+      const session = JSON.parse(storage.getItem(key));
+      session.expiresAt = Date.now() - 1;
+      storage.setItem(key, JSON.stringify(session));
+    }
   });
   await page.reload();
   const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
@@ -268,4 +272,17 @@ test('a successful upload response with different downloaded content is not repo
   await expect(section.getByRole('alert')).toContainText('일치하지 않습니다');
   await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toHaveCount(0);
   expect((await localRecipes(page))[0].name).toBe('데일리 V60');
+});
+
+test('an existing device connection resumes in a newly created tab without Google authentication', async ({ page, context }) => {
+  const state = await setup(page);
+  await connect(page);
+  const other = await context.newPage();
+  try {
+    const remote = await setup(other);
+    remote.snapshots = state.snapshots;
+    await expect(other.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+    expect(await other.evaluate(() => window.__oauthRequests)).toBe(0);
+    await expect(other.getByRole('button', { name: '지금 동기화', exact: true })).toBeVisible();
+  } finally { await other.close(); }
 });
