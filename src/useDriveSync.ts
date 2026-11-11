@@ -7,9 +7,12 @@ import { disconnectedDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
 import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession } from './driveSession';
 import type { DriveReceipt } from './driveSession';
+import { entryKey, needsDriveReview, recipeKey, replaceDriveEntries } from './driveReview';
+import type { DriveReview } from './DriveReviewDialog';
 
 const KEY = 'pour-guide.drive.entries.v1';
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+const BASELINE_KEY = 'pour-guide.drive.baseline.v1';
 export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateAction<Library>>, blocked: boolean) {
   const [restored] = useState(() => loadDriveSession('sync'));
   const [status, setStatus] = useState(() => restored ? '이 기기에 저장된 Google 연결로 동기화를 재개합니다.' : driveWasEnabled('sync') ? '자동 동기화 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.' : 'Google Drive에 연결하면 레시피가 자동 동기화됩니다.');
@@ -18,6 +21,9 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   const [receipt, setReceipt] = useState<DriveReceipt | null>(() => loadDriveReceipt('sync'));
   const [busy, setBusy] = useState(false);
   const [connection, setConnection] = useState<DriveConnection>(disconnectedDrive);
+  const [review, setReview] = useState<DriveReview | null>(null);
+  const reviewRef = useRef<DriveReview | null>(null);
+  const deferred = useRef('');
   const auth = useRef<{ token: string; expires: number } | null>(restored ? { token: restored.token, expires: restored.expiresAt } : null);
   const working = useRef(false);
   const mounted = useRef(true);
@@ -26,6 +32,20 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   const entries = useRef<Entry[] | null>(null);
   latest.current = library;
   paused.current = blocked;
+
+  function closeReview() { reviewRef.current = null; setReview(null); }
+  function showReview(remote: Entry[], message: string) {
+    const next = { local: latest.current.recipes, remote, localKey: recipeKey(latest.current.recipes), remoteKey: entryKey(remote) };
+    reviewRef.current = next;
+    setReview(next);
+    setStatus(message);
+  }
+  function baseline(): Entry[] | null {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BASELINE_KEY) ?? 'null');
+      return saved?.clientId === CLIENT_ID ? parseSnapshot(saved).entries : null;
+    } catch { return null; }
+  }
 
   function persist(value: Entry[]) {
     localStorage.setItem(KEY, JSON.stringify({ version: 1, entries: value }));
@@ -41,8 +61,9 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     }
     persist(trackChanges(entries.current, latest.current.recipes));
   }
-  async function sync() {
+  async function sync(manual = false, resolution?: { choice: 'remote' | 'local'; localKey: string; remoteKey: string }) {
     if (working.current || !auth.current || paused.current || !navigator.onLine) return;
+    if (reviewRef.current && !resolution) return;
     working.current = true;
     setBusy(true);
     setConnection(previous => ({ ...previous, state: 'checking' }));
@@ -50,6 +71,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       if (auth.current.expires <= Date.now()) {
         auth.current = null;
         clearDriveSession('sync');
+        closeReview();
         setConnected(false);
         throw new Error('Google 연결이 만료되었습니다. 다시 연결하면 자동 동기화를 재개합니다.');
       }
@@ -60,7 +82,24 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       setConnection({ state: 'verified', checkedAt: Date.now() });
       if (paused.current) return;
       observe(); // Include edits made while the request was in flight.
-      const merged = mergeEntries(remote, entries.current!);
+      const localKey = recipeKey(latest.current.recipes);
+      const remoteKey = entryKey(remote);
+      const pair = JSON.stringify([localKey, remoteKey]);
+      if (resolution && (resolution.localKey !== localKey || resolution.remoteKey !== remoteKey)) {
+        showReview(remote, '비교하는 동안 레시피가 다시 변경되었습니다. 최신 내용을 확인하고 다시 선택해 주세요.');
+        return;
+      }
+      if (!resolution && needsDriveReview(latest.current.recipes, remote, baseline())) {
+        if (!manual && deferred.current === pair) {
+          setStatus('덮어쓰기를 보류했습니다. 현재 기기와 Drive를 각각 유지합니다. 지금 동기화를 누르면 다시 비교합니다.');
+          return;
+        }
+        showReview(remote, '다른 기기의 변경 사항을 발견했습니다. 적용 방향을 선택해 주세요.');
+        return;
+      }
+      const merged = resolution?.choice === 'remote' ? mergeEntries(remote)
+        : resolution?.choice === 'local' ? replaceDriveEntries(latest.current.recipes, remote, entries.current!)
+        : mergeEntries(remote, entries.current!);
       const recipes = merged.flatMap(entry => entry.recipe ? [entry.recipe] : []);
       if (!recipes.length) throw new Error('모든 레시피가 삭제되었습니다. 새 레시피를 추가한 뒤 다시 동기화해 주세요.');
       persist(merged);
@@ -71,6 +110,9 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       }
       if (JSON.stringify(mergeEntries(remote)) !== JSON.stringify(merged)) await drive.write(merged);
       if (mounted.current && auth.current) {
+        localStorage.setItem(BASELINE_KEY, JSON.stringify({ version: 1, entries: merged, clientId: CLIENT_ID }));
+        deferred.current = '';
+        closeReview();
         const confirmed = { confirmedAt: Date.now(), recipeCount: recipes.length };
         saveDriveReceipt('sync', confirmed);
         setReceipt(confirmed);
@@ -79,6 +121,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       }
     } catch (error) {
       if (error instanceof DriveAuthError) {
+        closeReview();
         auth.current = null;
         clearDriveSession('sync');
         setConnected(false);
@@ -94,7 +137,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   }
   useEffect(() => {
     try { observe(); } catch { setStatus('동기화 기록을 저장할 수 없습니다. 브라우저 저장 공간을 확인해 주세요.'); }
-    if (auth.current) setStatus(!navigator.onLine ? '오프라인 · 변경 사항은 브라우저에 보관되며 온라인 복귀 후 Drive에 저장됩니다.' : blocked ? '현재 작업을 마친 뒤 Drive 동기화를 재개합니다.' : 'Drive 동기화 대기 중 · 저장 후 내용을 다시 읽어 확인합니다.');
+    if (auth.current && !reviewRef.current) setStatus(!navigator.onLine ? '오프라인 · 변경 사항은 브라우저에 보관되며 온라인 복귀 후 Drive에 저장됩니다.' : blocked ? '현재 작업을 마친 뒤 Drive 동기화를 재개합니다.' : 'Drive 동기화 대기 중 · 저장 후 내용을 다시 읽어 확인합니다.');
     const timer = window.setTimeout(() => void sync(), 1200);
     return () => window.clearTimeout(timer);
   }, [library, blocked, connected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -113,6 +156,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     const timer = window.setTimeout(() => {
       auth.current = null;
       clearDriveSession('sync');
+      closeReview();
       setConnected(false);
       setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
@@ -132,7 +176,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       setConnected(true);
       setConnection({ state: 'unverified', checkedAt: null });
       setStatus('Google 승인 완료 · Drive 응답을 확인해 주세요.');
-      await sync();
+      await sync(true);
       if (!remembered) setStatus(previous => `${previous} 이 기기에 인증을 저장하지 못해 앱을 다시 열면 재연결이 필요할 수 있습니다. 브라우저 저장 공간 설정을 확인해 주세요.`);
     } catch (error) {
       setConnection(previous => ({ ...previous, state: 'error' }));
@@ -172,6 +216,8 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   function disconnect() {
     const token = auth.current?.token;
     auth.current = null;
+    closeReview();
+    deferred.current = '';
     forgetDrive('sync');
     setEnabled(false);
     setReceipt(null);
@@ -180,5 +226,17 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     setConnection(disconnectedDrive);
     setStatus('연결 해제됨 · 레시피는 브라우저와 Drive에 보관됩니다.');
   }
-  return { status, connected, enabled, busy, connection, receipt, configured: !!CLIENT_ID, connect, disconnect, sync, checkConnection };
+  function chooseReview(choice: 'remote' | 'local') {
+    const current = reviewRef.current;
+    if (!current) return;
+    void sync(true, { choice, localKey: current.localKey, remoteKey: current.remoteKey });
+  }
+  function deferReview() {
+    if (working.current) return;
+    const current = reviewRef.current;
+    if (current) deferred.current = JSON.stringify([current.localKey, current.remoteKey]);
+    closeReview();
+    setStatus('덮어쓰기를 보류했습니다. 현재 기기와 Drive를 각각 유지합니다. 지금 동기화를 누르면 다시 비교합니다.');
+  }
+  return { status, connected, enabled, busy, connection, receipt, review, chooseReview, deferReview, configured: !!CLIENT_ID, connect, disconnect, sync, checkConnection };
 }
