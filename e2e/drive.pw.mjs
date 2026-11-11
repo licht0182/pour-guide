@@ -40,9 +40,20 @@ async function setup(page, { preload = true } = {}) {
   if (preload) await page.addInitScript(sdk);
   await page.route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: sdk }));
   await page.goto('/pour-guide/');
+  for (const name of ['Google Drive 동기화', 'Google Drive 백업']) {
+    await expect(page.getByRole('region', { name, exact: true }).locator('details')).toHaveJSProperty('open', false);
+  }
+  await expandDrive(page);
   return state;
 }
+async function expandDrive(page) {
+  for (const name of ['Google Drive 동기화', 'Google Drive 백업']) {
+    const section = page.getByRole('region', { name, exact: true });
+    if (await section.locator('details').getAttribute('open') === null) await section.locator('summary').click();
+  }
+}
 async function connect(page) {
+  await expandDrive(page);
   await page.getByRole('button', { name: 'Google Drive 연결', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Drive와 현재 레시피가 다릅니다' });
   await expect(page.getByRole('status').filter({ hasText: '동기화 완료' }).or(review)).toBeVisible();
@@ -69,6 +80,7 @@ test('connects, uploads, applies remote edits and preserves them after reload', 
   await expect.poll(async () => (await localRecipes(page)).some(r => r.name === 'Remote recipe')).toBe(true);
   await page.evaluate(() => sessionStorage.clear());
   await page.reload();
+  await expandDrive(page);
   await expect(page.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
   expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
   expect((await localRecipes(page)).some(r => r.name === 'Remote recipe')).toBe(true);
@@ -217,6 +229,7 @@ test('manual backup connection, selection and verified receipt survive a reload'
   await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toBeVisible();
   await page.evaluate(() => sessionStorage.clear());
   await page.reload();
+  await expandDrive(page);
   await expect(section.getByRole('status').filter({ hasText: '저장된 Google 연결과 Drive 백업 목록을 복원했습니다' })).toBeVisible();
   expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
   await expect(section.getByRole('button', { name: '선택한 백업 가져오기', exact: true })).toBeEnabled();
@@ -224,6 +237,7 @@ test('manual backup connection, selection and verified receipt survive a reload'
   expect(state.backups).toHaveLength(1);
   await section.getByRole('button', { name: '이 기기 연결 해제', exact: true }).click();
   await page.reload();
+  await expandDrive(page);
   await expect(section.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
   await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toHaveCount(0);
 });
@@ -240,6 +254,7 @@ test('expired saved credentials retain the sync preference but never claim a liv
     }
   });
   await page.reload();
+  await expandDrive(page);
   const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
   await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toBeVisible();
   await expect(section.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();

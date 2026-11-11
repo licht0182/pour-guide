@@ -83,7 +83,9 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
   }
 
   return <section className="drive-library" aria-label="Google Drive 백업" aria-busy={busy}>
-    <h3><Cloud size={17} aria-hidden="true" /> 수동 Drive 백업</h3>
+    <details className="drive-disclosure">
+      <summary><h3><Cloud size={17} aria-hidden="true" /> 수동 Drive 백업</h3></summary>
+      <div className="drive-disclosure-content">
     <DriveConnectionStatus connection={connection} />
     <DriveSaveStatus receipt={receipt} />
     <p>보관함 전체를 백업하고 다른 기기에서 가져오세요. 앱 전용 공간에 저장되어 일반 Drive 파일 목록에는 표시되지 않습니다.</p>
@@ -141,5 +143,7 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
     {busy && <p role="status">Drive 작업 중…</p>}
     {message && <p role="status">{message}</p>}
     {error && <p className="library-error" role="alert">{error}</p>}
+      </div>
+    </details>
   </section>;
 }

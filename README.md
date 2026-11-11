@@ -72,6 +72,8 @@ MIT
 
 ## Google Drive 클라우드 동기화
 
+보관함의 **자동 동기화**와 **수동 Drive 백업**은 각각 제목을 눌러 펼치거나 접을 수 있고, 처음 열 때는 둘 다 접혀 있습니다. 접는 것은 화면 표시만 바꾸며 연결 유지·자동 동기화·백업 작업을 중단하지 않습니다. 다른 기기 변경의 덮어쓰기 비교 화면은 패널을 접어도 필요한 경우 표시됩니다.
+
 로그인에 성공했는데 연결 확인이 실패하면 [Drive API 설정](https://console.cloud.google.com/apis/library/drive.googleapis.com?project=pour-guide)의 상태가 **사용 설정됨**인지 확인합니다. API 비활성화(`SERVICE_DISABLED`), 계정 권한 누락, 조직 정책, 요청 한도 초과는 앱에서 서로 다른 안내로 표시됩니다. API를 켠 뒤에는 잠시 후 **지금 동기화** 또는 **연결 확인**으로 다시 시도할 수 있으며 앱 재배포는 필요하지 않습니다.
 
 Pages 빌드는 제공된 웹 클라이언트 ID `13512728967-g0g2e77gjmlrgu626gpsp8s6q5rr59m3.apps.googleusercontent.com`를 기본으로 사용합니다. 아래 Actions 변수를 설정하면 해당 값으로 변경할 수 있습니다. 로컬 개발은 `.env.local` 설정이 필요합니다. 개발 원본에는 실제 사용 중인 `http://127.0.0.1:5173`도 등록하세요.
