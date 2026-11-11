@@ -1,5 +1,7 @@
 import { decodeBackup, encodeBackup } from './driveBackup';
 import type { Library } from './storage';
+import { driveResponseError } from './driveErrors';
+export { DriveAuthError } from './driveErrors';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const API = 'https://www.googleapis.com/drive/v3/files';
@@ -64,16 +66,12 @@ export function connectDrive(): Promise<{ token: string; expiresAt: number }> {
   });
 }
 
-export class DriveAuthError extends Error {}
 async function request(token: string, url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetch(url, { ...options, signal: controller.signal, headers: { ...options.headers, Authorization: `Bearer ${token}` } });
-    if (response.status === 401) throw new DriveAuthError('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
-    if (!response.ok) throw new Error(response.status === 403
-      ? 'Drive 접근이 거부되었습니다. Drive API 활성화와 계정 권한을 확인해 주세요.'
-      : `Drive 요청에 실패했습니다 (${response.status}). 잠시 후 다시 시도해 주세요.`);
+    if (!response.ok) throw await driveResponseError(response);
     // Consume the body while the timeout is still active.
     return new Response(await response.blob(), { status: response.status, headers: response.headers });
   } catch (error) {

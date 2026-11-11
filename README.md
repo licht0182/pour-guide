@@ -66,6 +66,8 @@ MIT
 
 ## Google Drive 클라우드 동기화
 
+로그인에 성공했는데 연결 확인이 실패하면 [Drive API 설정](https://console.cloud.google.com/apis/library/drive.googleapis.com?project=pour-guide)의 상태가 **사용 설정됨**인지 확인합니다. API 비활성화(`SERVICE_DISABLED`), 계정 권한 누락, 조직 정책, 요청 한도 초과는 앱에서 서로 다른 안내로 표시됩니다. API를 켠 뒤에는 잠시 후 **지금 동기화** 또는 **연결 확인**으로 다시 시도할 수 있으며 앱 재배포는 필요하지 않습니다.
+
 Pages 빌드는 제공된 웹 클라이언트 ID `13512728967-g0g2e77gjmlrgu626gpsp8s6q5rr59m3.apps.googleusercontent.com`를 기본으로 사용합니다. 아래 Actions 변수를 설정하면 해당 값으로 변경할 수 있습니다. 로컬 개발은 `.env.local` 설정이 필요합니다. 개발 원본에는 실제 사용 중인 `http://127.0.0.1:5173`도 등록하세요.
 
 1. Google Cloud 프로젝트에서 **Google Drive API**를 활성화하고 OAuth 동의 화면을 설정합니다. 테스트 모드라면 사용할 계정을 테스트 사용자로 등록합니다.
