@@ -3,9 +3,10 @@ import { test, expect } from '@playwright/test';
 // Run the production bundle in Chromium. Only Google endpoints are replaced;
 // React, localStorage, timers, navigation and user interactions are real.
 async function setup(page, { preload = true } = {}) {
-  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, failUpload: false, listFailure: 0, hold: null };
+  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, apiDisabled: false, failUpload: false, listFailure: 0, hold: null };
   await page.route('https://www.googleapis.com/**', async route => {
     if (state.unauthorized) return route.fulfill({ status: 401, body: '{}' });
+    if (state.apiDisabled) return route.fulfill({ status: 403, json: { error: { code: 403, details: [{ reason: 'SERVICE_DISABLED', metadata: { service: 'drive.googleapis.com' } }] } } });
     const url = new URL(route.request().url());
     if (state.listFailure && route.request().method() === 'GET') return route.fulfill({ status: state.listFailure, body: '{}' });
     if (route.request().method() === 'POST') {
@@ -176,4 +177,20 @@ test('manual connection check requires a Drive response, handles errors and reco
   await section.screenshot({ path: 'output/playwright/drive-connection-mobile.png' });
   await section.getByRole('button', { name: '이 기기 연결 해제', exact: true }).click();
   await expect(section.getByRole('status').filter({ hasText: 'Drive 미연결' })).toBeVisible();
+});
+
+test('disabled Drive API shows the project setting cause and recovers without signing in again', async ({ page }) => {
+  const state = await setup(page);
+  state.apiDisabled = true;
+  const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
+  await section.getByRole('button', { name: 'Google Drive 연결', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive API가 꺼져' })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인 실패' })).toBeVisible();
+  await expect(section.getByRole('button', { name: '지금 동기화', exact: true })).toBeVisible();
+  expect(state.writes).toHaveLength(0);
+  state.apiDisabled = false;
+  await section.getByRole('button', { name: '지금 동기화', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toBeVisible();
+  expect(state.writes).toHaveLength(1);
 });

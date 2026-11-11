@@ -1,5 +1,7 @@
 import { parseRecipe } from './recipe';
 import type { Recipe } from './types';
+import { driveResponseError } from './driveErrors';
+export { DriveAuthError } from './driveErrors';
 
 export interface Entry { id: string; revision: string; recipe: Recipe | null }
 export interface Snapshot { version: 1; entries: Entry[] }
@@ -33,15 +35,12 @@ export function trackChanges(entries: Entry[], recipes: Recipe[]): Entry[] {
   return [...previous.values()];
 }
 
-export class DriveAuthError extends Error {}
-
 const API = 'https://www.googleapis.com/drive/v3/files';
 export class Drive {
   constructor(private token: string) {}
   private async request(url: string, init?: RequestInit): Promise<Response> {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000), headers: { ...init?.headers, Authorization: `Bearer ${this.token}` } });
-    if (response.status === 401 || response.status === 403) throw new DriveAuthError('Google Drive 권한을 확인하고 다시 연결해 주세요.');
-    if (!response.ok) throw new Error(`Drive 동기화 실패 (${response.status}). 변경 사항은 브라우저에 보관됩니다.`);
+    if (!response.ok) throw await driveResponseError(response);
     return response;
   }
   async checkConnection(): Promise<void> {
@@ -75,7 +74,8 @@ export class Drive {
 
 type TokenClient = { requestAccessToken: (options: { prompt: string }) => void };
 interface GoogleIdentity { accounts: { oauth2: {
-  initTokenClient: (config: { client_id: string; scope: string; callback: (response: { access_token?: string; expires_in?: number; error?: string }) => void; error_callback: () => void }) => TokenClient;
+  initTokenClient: (config: { client_id: string; scope: string; include_granted_scopes: boolean; callback: (response: { access_token?: string; expires_in?: number; error?: string }) => void; error_callback: () => void }) => TokenClient;
+  hasGrantedAllScopes: (response: { access_token?: string; expires_in?: number; error?: string }, scope: string) => boolean;
   revoke: (token: string, callback: () => void) => void;
 } } }
 declare global { interface Window { google?: GoogleIdentity } }
@@ -94,10 +94,10 @@ export async function authorize(clientId: string): Promise<{ token: string; expi
   }
   return new Promise((resolve, reject) => {
     window.google!.accounts.oauth2.initTokenClient({
-      client_id: clientId, scope: 'https://www.googleapis.com/auth/drive.appdata',
-      callback: response => response.access_token && !response.error
+      client_id: clientId, scope: 'https://www.googleapis.com/auth/drive.appdata', include_granted_scopes: false,
+      callback: response => response.access_token && !response.error && window.google!.accounts.oauth2.hasGrantedAllScopes(response, 'https://www.googleapis.com/auth/drive.appdata')
         ? resolve({ token: response.access_token, expires: Date.now() + (response.expires_in ?? 3600) * 1000 })
-        : reject(new Error('Google Drive 연결이 승인되지 않았습니다.')),
+        : reject(new Error('Google Drive 앱 저장 공간 권한이 승인되지 않았습니다. 다시 연결해 Drive 권한을 허용해 주세요.')),
       error_callback: () => reject(new Error('로그인 창이 닫혔거나 차단되었습니다. 다시 연결해 주세요.')),
     }).requestAccessToken({ prompt: 'select_account' });
   });
