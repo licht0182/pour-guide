@@ -86,7 +86,8 @@ export interface DriveBackup { id: string; name: string; createdTime: string }
 export async function listDriveBackups(token: string): Promise<DriveBackup[]> {
   const query = new URLSearchParams({ spaces: 'appDataFolder', q: "trashed = false and appProperties has { key='app' and value='pour-guide' }", fields: 'files(id,name,createdTime)', orderBy: 'createdTime desc', pageSize: '20' });
   const result = await (await request(token, `${API}?${query}`)).json();
-  return result.files ?? [];
+  if (!Array.isArray(result?.files)) throw new Error('Drive 응답을 확인하지 못했습니다. 다시 시도해 주세요.');
+  return result.files;
 }
 
 export async function saveDriveBackup(token: string, library: Library): Promise<void> {

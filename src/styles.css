@@ -448,6 +448,10 @@ h3 {
 .drive-library p, .drive-library label { font-size: 0.75rem; line-height: 1.6; }
 .drive-library select { width: 100%; min-width: 0; font: inherit; padding: 8px; color: var(--label); background: var(--surface); border: 1px solid var(--separator); border-radius: 8px; }
 .drive-actions { display: flex; gap: 6px; }
+.drive-connection { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--separator); border-radius: 8px; font-size: 0.75rem; line-height: 1.5; overflow-wrap: anywhere; }
+.drive-connection-label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.drive-connection.is-verified { color: var(--accent); background: var(--accent-soft); }
+.drive-connection.is-error { color: var(--danger); background: var(--danger-soft); }
 .drive-library .btn { white-space: normal; }
 .drive-sync { display: grid; gap: 8px; }
 .drive-sync h3 { margin: 0; font-size: 0.875rem; }
