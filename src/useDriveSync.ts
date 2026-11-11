@@ -12,7 +12,7 @@ const KEY = 'pour-guide.drive.entries.v1';
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateAction<Library>>, blocked: boolean) {
   const [restored] = useState(() => loadDriveSession('sync'));
-  const [status, setStatus] = useState(() => restored ? '저장된 Google 연결로 동기화를 재개합니다.' : driveWasEnabled('sync') ? '자동 동기화 설정은 저장되어 있습니다. 인증이 만료되었거나 새 탭입니다. Google 계정을 다시 연결해 주세요.' : 'Google Drive에 연결하면 레시피가 자동 동기화됩니다.');
+  const [status, setStatus] = useState(() => restored ? '이 기기에 저장된 Google 연결로 동기화를 재개합니다.' : driveWasEnabled('sync') ? '자동 동기화 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.' : 'Google Drive에 연결하면 레시피가 자동 동기화됩니다.');
   const [connected, setConnected] = useState(!!restored);
   const [enabled, setEnabled] = useState(() => driveWasEnabled('sync') || !!restored);
   const [receipt, setReceipt] = useState<DriveReceipt | null>(() => loadDriveReceipt('sync'));
@@ -47,7 +47,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     setBusy(true);
     setConnection(previous => ({ ...previous, state: 'checking' }));
     try {
-      if (auth.current.expires <= Date.now() + 30000) {
+      if (auth.current.expires <= Date.now()) {
         auth.current = null;
         clearDriveSession('sync');
         setConnected(false);
@@ -133,7 +133,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       setConnection({ state: 'unverified', checkedAt: null });
       setStatus('Google 승인 완료 · Drive 응답을 확인해 주세요.');
       await sync();
-      if (!remembered) setStatus(previous => `${previous} 브라우저 저장 공간을 사용할 수 없어 새로고침 후 재연결이 필요합니다.`);
+      if (!remembered) setStatus(previous => `${previous} 이 기기에 인증을 저장하지 못해 앱을 다시 열면 재연결이 필요할 수 있습니다. 브라우저 저장 공간 설정을 확인해 주세요.`);
     } catch (error) {
       setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus(error instanceof Error ? error.message : '연결 실패');
