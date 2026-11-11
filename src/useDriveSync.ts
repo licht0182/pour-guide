@@ -5,15 +5,20 @@ import { authorize, Drive, DriveAuthError, mergeEntries, parseSnapshot, trackCha
 import type { Entry } from './driveSync';
 import { disconnectedDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
+import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession } from './driveSession';
+import type { DriveReceipt } from './driveSession';
 
 const KEY = 'pour-guide.drive.entries.v1';
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateAction<Library>>, blocked: boolean) {
-  const [status, setStatus] = useState('Google Drive에 연결하면 레시피가 자동 동기화됩니다.');
-  const [connected, setConnected] = useState(false);
+  const [restored] = useState(() => loadDriveSession('sync'));
+  const [status, setStatus] = useState(() => restored ? '저장된 Google 연결로 동기화를 재개합니다.' : driveWasEnabled('sync') ? '자동 동기화 설정은 저장되어 있습니다. 인증이 만료되었거나 새 탭입니다. Google 계정을 다시 연결해 주세요.' : 'Google Drive에 연결하면 레시피가 자동 동기화됩니다.');
+  const [connected, setConnected] = useState(!!restored);
+  const [enabled, setEnabled] = useState(() => driveWasEnabled('sync') || !!restored);
+  const [receipt, setReceipt] = useState<DriveReceipt | null>(() => loadDriveReceipt('sync'));
   const [busy, setBusy] = useState(false);
   const [connection, setConnection] = useState<DriveConnection>(disconnectedDrive);
-  const auth = useRef<{ token: string; expires: number } | null>(null);
+  const auth = useRef<{ token: string; expires: number } | null>(restored ? { token: restored.token, expires: restored.expiresAt } : null);
   const working = useRef(false);
   const mounted = useRef(true);
   const latest = useRef(library);
@@ -44,6 +49,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     try {
       if (auth.current.expires <= Date.now() + 30000) {
         auth.current = null;
+        clearDriveSession('sync');
         setConnected(false);
         throw new Error('Google 연결이 만료되었습니다. 다시 연결하면 자동 동기화를 재개합니다.');
       }
@@ -65,12 +71,16 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       }
       if (JSON.stringify(mergeEntries(remote)) !== JSON.stringify(merged)) await drive.write(merged);
       if (mounted.current && auth.current) {
+        const confirmed = { confirmedAt: Date.now(), recipeCount: recipes.length };
+        saveDriveReceipt('sync', confirmed);
+        setReceipt(confirmed);
         setConnection({ state: 'verified', checkedAt: Date.now() });
         setStatus(`동기화 완료 · ${new Date().toLocaleTimeString()}`);
       }
     } catch (error) {
       if (error instanceof DriveAuthError) {
         auth.current = null;
+        clearDriveSession('sync');
         setConnected(false);
       }
       if (mounted.current) {
@@ -84,6 +94,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   }
   useEffect(() => {
     try { observe(); } catch { setStatus('동기화 기록을 저장할 수 없습니다. 브라우저 저장 공간을 확인해 주세요.'); }
+    if (auth.current) setStatus(!navigator.onLine ? '오프라인 · 변경 사항은 브라우저에 보관되며 온라인 복귀 후 Drive에 저장됩니다.' : blocked ? '현재 작업을 마친 뒤 Drive 동기화를 재개합니다.' : 'Drive 동기화 대기 중 · 저장 후 내용을 다시 읽어 확인합니다.');
     const timer = window.setTimeout(() => void sync(), 1200);
     return () => window.clearTimeout(timer);
   }, [library, blocked, connected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,6 +112,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     if (!connected || !expiresAt) return;
     const timer = window.setTimeout(() => {
       auth.current = null;
+      clearDriveSession('sync');
       setConnected(false);
       setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
@@ -113,10 +125,15 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     setConnection(previous => ({ ...previous, state: 'checking' }));
     try {
       auth.current = await authorize(CLIENT_ID);
+      const remembered = saveDriveSession('sync', { token: auth.current.token, expiresAt: auth.current.expires });
+      setEnabled(true);
+      saveDriveReceipt('sync', null);
+      setReceipt(null);
       setConnected(true);
       setConnection({ state: 'unverified', checkedAt: null });
       setStatus('Google 승인 완료 · Drive 응답을 확인해 주세요.');
       await sync();
+      if (!remembered) setStatus(previous => `${previous} 브라우저 저장 공간을 사용할 수 없어 새로고침 후 재연결이 필요합니다.`);
     } catch (error) {
       setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus(error instanceof Error ? error.message : '연결 실패');
@@ -127,6 +144,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     if (working.current || !auth.current) return;
     if (auth.current.expires <= Date.now()) {
       auth.current = null;
+      clearDriveSession('sync');
       setConnected(false);
       setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
@@ -143,7 +161,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       setStatus('연결 확인 완료 · 레시피를 변경하지 않고 Drive 응답을 확인했습니다.');
     } catch (error) {
       if (!mounted.current || auth.current !== session) return;
-      if (error instanceof DriveAuthError) { auth.current = null; setConnected(false); }
+      if (error instanceof DriveAuthError) { auth.current = null; clearDriveSession('sync'); setConnected(false); }
       setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus(error instanceof Error ? error.message : '연결 확인에 실패했습니다. 네트워크를 확인해 주세요.');
     } finally {
@@ -154,10 +172,13 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   function disconnect() {
     const token = auth.current?.token;
     auth.current = null;
+    forgetDrive('sync');
+    setEnabled(false);
+    setReceipt(null);
     if (token) window.google?.accounts.oauth2.revoke(token, () => {});
     setConnected(false);
     setConnection(disconnectedDrive);
     setStatus('연결 해제됨 · 레시피는 브라우저와 Drive에 보관됩니다.');
   }
-  return { status, connected, busy, connection, configured: !!CLIENT_ID, connect, disconnect, sync, checkConnection };
+  return { status, connected, enabled, busy, connection, receipt, configured: !!CLIENT_ID, connect, disconnect, sync, checkConnection };
 }

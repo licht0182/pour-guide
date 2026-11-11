@@ -16,7 +16,7 @@ function mockNetwork(responses: Response[]) {
 
 describe('Google Drive requests', () => {
   it('uploads a new app-private backup and reads it back', async () => {
-    const network = mockNetwork([Response.json({ id: 'new' }), new Response(encodeBackup(library))]);
+    const network = mockNetwork([Response.json({ id: 'new' }), new Response(encodeBackup(library)), new Response(encodeBackup(library))]);
     await saveDriveBackup('token', library);
     const [url, options] = network.mock.calls[0];
     expect(url).toContain('uploadType=multipart');
@@ -38,6 +38,10 @@ describe('Google Drive requests', () => {
   it('does not import malformed remote data', async () => {
     mockNetwork([new Response('{"format":"other"}')]);
     await expect(readDriveBackup('token', 'bad')).rejects.toThrow(/백업/);
+  });
+  it('does not report a successful save when Drive returns different contents', async () => {
+    mockNetwork([Response.json({ id: 'wrong' }), new Response(encodeBackup({ ...library, recipes: [{ ...PRESETS[0], name: '다른 내용' }] }))]);
+    await expect(saveDriveBackup('token', library)).rejects.toThrow(/일치하지/);
   });
   it('rejects closed popups and missing consent', async () => {
     vi.stubGlobal('window', { google: { accounts: { oauth2: {

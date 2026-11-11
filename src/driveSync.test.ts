@@ -38,4 +38,19 @@ describe('Drive sync', () => {
     try { await expect(new Drive('expired').read()).rejects.toThrow('다시 연결'); }
     finally { vi.unstubAllGlobals(); }
   });
+  it('verifies uploaded sync content by reading the returned file ID', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ id: 'saved' }))
+      .mockResolvedValueOnce(Response.json({ version: 1, entries: [old] }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      await new Drive('token').write([old]);
+      expect(fetcher.mock.calls[1][0]).toContain('/saved?alt=media');
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('rejects writes that cannot be read back correctly', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ id: 'wrong' }))
+      .mockResolvedValueOnce(Response.json({ version: 1, entries: [deleted] })));
+    try { await expect(new Drive('token').write([old])).rejects.toThrow(/일치하지/); }
+    finally { vi.unstubAllGlobals(); }
+  });
 });

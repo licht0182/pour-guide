@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 // Run the production bundle in Chromium. Only Google endpoints are replaced;
 // React, localStorage, timers, navigation and user interactions are real.
 async function setup(page, { preload = true } = {}) {
-  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, apiDisabled: false, failUpload: false, listFailure: 0, hold: null };
+  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, apiDisabled: false, corruptReads: false, failUpload: false, listFailure: 0, hold: null };
   await page.route('https://www.googleapis.com/**', async route => {
     if (state.unauthorized) return route.fulfill({ status: 401, body: '{}' });
     if (state.apiDisabled) return route.fulfill({ status: 403, json: { error: { code: 403, details: [{ reason: 'SERVICE_DISABLED', metadata: { service: 'drive.googleapis.com' } }] } } });
@@ -20,17 +20,23 @@ async function setup(page, { preload = true } = {}) {
       state.writes.push(snapshot);
       if (state.failUpload) return route.fulfill({ status: 503, body: '{}' });
       state.snapshots.push(snapshot);
-      return route.fulfill({ json: { id: String(state.snapshots.length) } });
+      return route.fulfill({ json: { id: String(state.snapshots.length - 1) } });
     }
     if (url.searchParams.get('alt') === 'media') {
       const id = url.pathname.split('/').pop();
+      if (state.corruptReads) {
+        if (!id.startsWith('backup-')) return route.fulfill({ json: { version: 1, entries: [] } });
+        const backup = structuredClone(state.backups[Number(id.slice(7))]);
+        backup.recipes[0].name = 'Different saved content';
+        return route.fulfill({ json: backup });
+      }
       return route.fulfill({ json: id.startsWith('backup-') ? state.backups[Number(id.slice(7))] : state.snapshots[Number(id)] });
     }
     if (url.searchParams.get('q')?.includes('appProperties')) return route.fulfill({ json: { files: state.backups.map((_, id) => ({ id: `backup-${id}`, name: 'Backup', createdTime: new Date().toISOString() })) } });
     if (state.hold) await state.hold;
     return route.fulfill({ json: { files: state.snapshots.map((_, id) => ({ id: String(id) })) } });
   });
-  const sdk = `window.google={accounts:{oauth2:{initTokenClient: config => ({requestAccessToken: () => config.callback({access_token:'test-token', expires_in:3600})}),hasGrantedAllScopes:()=>true,revoke: (token,cb) => cb()}}};`;
+  const sdk = `window.__oauthRequests=0;window.google={accounts:{oauth2:{initTokenClient: config => ({requestAccessToken: () => {window.__oauthRequests++;config.callback({access_token:'test-token', expires_in:3600});}}),hasGrantedAllScopes:()=>true,revoke: (token,cb) => cb()}}};`;
   if (preload) await page.addInitScript(sdk);
   await page.route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: sdk }));
   await page.goto('/pour-guide/');
@@ -58,7 +64,8 @@ test('connects, uploads, applies remote edits and preserves them after reload', 
   await page.getByRole('button', { name: '지금 동기화', exact: true }).click();
   await expect.poll(async () => (await localRecipes(page)).some(r => r.name === 'Remote recipe')).toBe(true);
   await page.reload();
-  await connect(page);
+  await expect(page.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
   expect((await localRecipes(page)).some(r => r.name === 'Remote recipe')).toBe(true);
 });
 test('expired authorization offers reconnect directly', async ({ page }) => {
@@ -76,7 +83,7 @@ test('fresh device does not resurrect a deleted preset', async ({ page }) => {
   const previous = state.snapshots.at(-1);
   const deletedId = previous.entries[0].id;
   state.snapshots.push({ version: 1, entries: previous.entries.map((e, i) => i === 0 ? { ...e, recipe: null, revision: `${String(Date.now()+1000).padStart(16,'0')}-deleted` } : e) });
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
   await page.reload();
   await connect(page);
   expect((await localRecipes(page)).some(r => r.id === deletedId)).toBe(false);
@@ -115,6 +122,7 @@ test('manual backups preserve conflicting recipes and skip repeated imports', as
   await expect(page.getByRole('button', { name: 'Drive에 저장', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Drive에 저장', exact: true }).click();
   await expect.poll(() => state.backups.length).toBe(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Drive에 저장하고 다시 읽어 확인했습니다' })).toBeVisible();
   state.backups[0].recipes[0].name = 'Conflicting backup';
   await page.getByRole('button', { name: '선택한 백업 가져오기', exact: true }).click();
   await expect.poll(async () => (await localRecipes(page)).length).toBe(initial.length + 1);
@@ -193,4 +201,71 @@ test('disabled Drive API shows the project setting cause and recovers without si
   await expect(section.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
   await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toBeVisible();
   expect(state.writes).toHaveLength(1);
+});
+
+test('manual backup connection, selection and verified receipt survive a reload', async ({ page }) => {
+  const state = await setup(page);
+  const section = page.getByRole('region', { name: 'Google Drive 백업', exact: true });
+  await section.getByRole('button', { name: 'Google 계정 연결', exact: true }).click();
+  await section.getByRole('button', { name: 'Drive에 저장', exact: true }).click();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toBeVisible();
+  await page.reload();
+  await expect(section.getByRole('status').filter({ hasText: '저장된 Google 연결과 Drive 백업 목록을 복원했습니다' })).toBeVisible();
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
+  await expect(section.getByRole('button', { name: '선택한 백업 가져오기', exact: true })).toBeEnabled();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toContainText('3개 레시피');
+  expect(state.backups).toHaveLength(1);
+  await section.getByRole('button', { name: '이 기기 연결 해제', exact: true }).click();
+  await page.reload();
+  await expect(section.getByRole('button', { name: 'Google 계정 연결', exact: true })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toHaveCount(0);
+});
+
+test('expired saved credentials retain the sync preference but never claim a live connection', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  await page.evaluate(() => {
+    const key = 'pour-guide.drive.sync.session.v1';
+    const session = JSON.parse(sessionStorage.getItem(key));
+    session.expiresAt = Date.now() - 1;
+    sessionStorage.setItem(key, JSON.stringify(session));
+  });
+  await page.reload();
+  const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
+  await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem('pour-guide.drive.sync.session.v1'))).toBeNull();
+  await section.getByRole('button', { name: '연결 해제', exact: true }).click();
+  await page.reload();
+  await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toHaveCount(0);
+});
+
+test('new device retrieves the actual uploaded recipe from Drive', async ({ page, browser }) => {
+  const state = await setup(page);
+  await connect(page);
+  await page.getByRole('button', { name: '새 레시피', exact: true }).click();
+  await page.getByLabel('레시피 이름', { exact: true }).fill('Cloud round trip recipe');
+  await page.getByRole('button', { name: '레시피 저장', exact: true }).click();
+  await expect.poll(() => state.snapshots.at(-1).entries.some(entry => entry.recipe?.name === 'Cloud round trip recipe')).toBe(true);
+  await expect(page.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toContainText('4개 레시피');
+  const freshContext = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const other = await freshContext.newPage();
+    const remote = await setup(other);
+    remote.snapshots = state.snapshots;
+    await connect(other);
+    expect((await localRecipes(other)).some(recipe => recipe.name === 'Cloud round trip recipe')).toBe(true);
+  } finally { await freshContext.close(); }
+});
+
+test('a successful upload response with different downloaded content is not reported as a saved backup', async ({ page }) => {
+  const state = await setup(page);
+  const section = page.getByRole('region', { name: 'Google Drive 백업', exact: true });
+  await section.getByRole('button', { name: 'Google 계정 연결', exact: true }).click();
+  state.corruptReads = true;
+  await section.getByRole('button', { name: 'Drive에 저장', exact: true }).click();
+  await expect(section.getByRole('alert')).toContainText('일치하지 않습니다');
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toHaveCount(0);
+  expect((await localRecipes(page))[0].name).toBe('데일리 V60');
 });
