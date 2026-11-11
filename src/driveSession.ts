@@ -4,6 +4,25 @@ export type DriveMode = 'sync' | 'backup';
 export interface DriveSession { token: string; expiresAt: number }
 export interface DriveReceipt { confirmedAt: number; recipeCount: number }
 const key = (mode: DriveMode, suffix: string) => `pour-guide.drive.${mode}.${suffix}.v1`;
+const SESSION_KEY = 'pour-guide.drive.session.v2';
+const modes: DriveMode[] = ['sync', 'backup'];
+const listeners = new Set<() => void>();
+function changed() { for (const listener of listeners) listener(); }
+export function subscribeDriveSession(listener: () => void): () => void {
+  listeners.add(listener);
+  const storageChanged = (event: StorageEvent) => {
+    if (event.key === null || event.key === SESSION_KEY) {
+      try {
+        if (event.newValue === null) sessionStorage.removeItem(SESSION_KEY);
+        else sessionStorage.setItem(SESSION_KEY, event.newValue);
+        for (const mode of modes) sessionStorage.removeItem(key(mode, 'session'));
+      } catch { /* The persistent copy remains authoritative. */ }
+      listener();
+    }
+  };
+  window.addEventListener('storage', storageChanged);
+  return () => { listeners.delete(listener); window.removeEventListener('storage', storageChanged); };
+}
 
 function stores(): { storage: Storage; durable: boolean }[] {
   const result: { storage: Storage; durable: boolean }[] = [];
@@ -33,31 +52,52 @@ function write(name: string, value: string | null): boolean {
 
 // Keep only Google's short-lived token and its real expiry. Device storage also
 // survives mobile web-view recreation; session storage is a compatible fallback.
-export function loadDriveSession(mode: DriveMode): DriveSession | null {
-  const candidates: (DriveSession & { savedAt: number })[] = [];
+export function loadDriveSession(_mode: DriveMode): DriveSession | null {
+  const shared: (DriveSession & { savedAt: number })[] = [];
+  const legacy: (DriveSession & { savedAt: number })[] = [];
   for (const item of stores()) {
-    const data = read(item.storage, key(mode, 'session'));
-    if (data && data.clientId === driveClientId && typeof data.token === 'string' && data.token.length > 0 && typeof data.expiresAt === 'number' && Number.isFinite(data.expiresAt) && data.expiresAt > Date.now()) {
-      candidates.push({ token: data.token, expiresAt: data.expiresAt, savedAt: typeof data.savedAt === 'number' && Number.isFinite(data.savedAt) ? data.savedAt : 0 });
+    for (const name of [SESSION_KEY, ...modes.map(mode => key(mode, 'session'))]) {
+      const data = read(item.storage, name);
+      if (data && data.clientId === driveClientId && typeof data.token === 'string' && data.token.length > 0 && typeof data.expiresAt === 'number' && Number.isFinite(data.expiresAt) && data.expiresAt > Date.now()) {
+        (name === SESSION_KEY ? shared : legacy).push({ token: data.token, expiresAt: data.expiresAt, savedAt: typeof data.savedAt === 'number' && Number.isFinite(data.savedAt) ? data.savedAt : 0 });
+      }
     }
   }
-  const saved = candidates.sort((a, b) => b.savedAt - a.savedAt)[0];
-  if (!saved) { clearDriveSession(mode); return null; }
-  // Migrate the previous tab-only format without requiring another login.
-  write(key(mode, 'session'), JSON.stringify({ ...saved, clientId: driveClientId }));
-  write(key(mode, 'enabled'), 'on');
+  const saved = (shared.length ? shared : legacy).sort((a, b) => b.savedAt - a.savedAt || b.expiresAt - a.expiresAt)[0];
+  // Loading never broadcasts: React may read twice while mounting.
+  if (!saved) {
+    write(SESSION_KEY, null);
+    for (const mode of modes) write(key(mode, 'session'), null);
+    return null;
+  }
+  if (!shared.length && new Set(legacy.map(session => session.token)).size > 1) {
+    // The two legacy connections may be different accounts: require sync start.
+    write(key('sync', 'enabled'), null);
+    for (const mode of modes) write(key(mode, 'receipt'), null);
+  }
+  write(SESSION_KEY, JSON.stringify({ ...saved, clientId: driveClientId }));
+  for (const mode of modes) write(key(mode, 'session'), null);
   return { token: saved.token, expiresAt: saved.expiresAt };
 }
 
 export function saveDriveSession(mode: DriveMode, session: DriveSession): boolean {
-  const durable = write(key(mode, 'session'), JSON.stringify({ ...session, clientId: driveClientId, savedAt: Date.now() }));
+  const durable = write(SESSION_KEY, JSON.stringify({ ...session, clientId: driveClientId, savedAt: Date.now() }));
+  for (const entry of modes) {
+    write(key(entry, 'session'), null);
+    write(key(entry, 'receipt'), null);
+  }
   write(key(mode, 'enabled'), 'on');
+  changed();
   return durable;
 }
 
-export function clearDriveSession(mode: DriveMode): void {
-  write(key(mode, 'session'), null);
+export function clearDriveSession(_mode: DriveMode): void {
+  write(SESSION_KEY, null);
+  for (const mode of modes) write(key(mode, 'session'), null);
+  changed();
 }
+
+export function enableDriveSync(): void { write(key('sync', 'enabled'), 'on'); }
 
 export function driveWasEnabled(mode: DriveMode): boolean {
   return stores().some(item => {
@@ -65,10 +105,14 @@ export function driveWasEnabled(mode: DriveMode): boolean {
   });
 }
 
-export function forgetDrive(mode: DriveMode): void {
-  clearDriveSession(mode);
-  write(key(mode, 'enabled'), null);
-  write(key(mode, 'receipt'), null);
+export function forgetDrive(_mode: DriveMode): void {
+  write(SESSION_KEY, null);
+  for (const mode of modes) {
+    write(key(mode, 'session'), null);
+    write(key(mode, 'enabled'), null);
+    write(key(mode, 'receipt'), null);
+  }
+  changed();
 }
 
 export function loadDriveReceipt(mode: DriveMode): DriveReceipt | null {

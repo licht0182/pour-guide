@@ -65,4 +65,15 @@ describe('Google Drive requests', () => {
     consent.mockReturnValueOnce(false);
     await expect(connectDrive()).rejects.toThrow(/권한/);
   });
+  it('opens one authorization flow when both features connect concurrently', async () => {
+    let respond: ((value: object) => void) | undefined;
+    const initialize = vi.fn((config: { callback: (value: object) => void }) => ({ requestAccessToken: () => { respond = config.callback; } }));
+    vi.stubGlobal('window', { google: { accounts: { oauth2: { initTokenClient: initialize, hasGrantedAllScopes: () => true } } } });
+    const sync = connectDrive();
+    const backup = connectDrive();
+    expect(backup).toBe(sync);
+    expect(initialize).toHaveBeenCalledTimes(1);
+    respond?.({ access_token: 'one-shared-token', expires_in: 120 });
+    expect((await Promise.all([sync, backup])).every(session => session.token === 'one-shared-token')).toBe(true);
+  });
 });

@@ -395,12 +395,13 @@ function App() {
               <summary><h3>자동 동기화</h3></summary>
               <div className="drive-disclosure-content">
             <DriveConnectionStatus connection={driveSync.connection} />
+            <p className="library-note">Google 연결은 수동 Drive 백업과 공유합니다. 어느 쪽에서든 연결하거나 해제하면 양쪽에 함께 반영됩니다.</p>
             <DriveSaveStatus receipt={driveSync.receipt} />
             <p className="library-note">앱 전용 공간에 저장되어 일반 Drive 파일 목록에는 표시되지 않습니다. 유효한 Google 연결을 이 기기에 저장하여 새로고침·앱 재실행 후 자동 복원합니다.</p>
             <button className="btn btn-secondary" type="button" disabled={driveSync.busy || !driveSync.configured} onClick={() => void (driveSync.connected ? driveSync.sync(true) : driveSync.connect())}>
-              {driveSync.busy ? '동기화 중…' : driveSync.connected ? '지금 동기화' : 'Google Drive 연결'}
+              {driveSync.busy ? '동기화 중…' : driveSync.connected ? driveSync.enabled ? '지금 동기화' : '자동 동기화 시작' : 'Google Drive 연결'}
             </button>
-            {driveSync.enabled && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={driveSync.disconnect}>연결 해제</button>}
+            {driveSync.connected || driveSync.enabled ? <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={driveSync.disconnect}>연결 해제</button> : null}
             {driveSync.connected && <button className="btn btn-ghost" type="button" disabled={driveSync.busy} onClick={() => void driveSync.checkConnection()}>자동 동기화 연결 확인</button>}
             <p className="library-note" role="status">{driveSync.configured ? driveSync.status : 'Google Drive 연동 설정이 필요합니다.'}</p>
               </div>
