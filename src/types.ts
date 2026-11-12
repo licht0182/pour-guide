@@ -1,4 +1,5 @@
 export type StepAction = 'pour' | 'wait' | 'swirl' | 'stir';
+export type ServeTemperature = 'ice' | 'hot';
 export interface RecipeStep {
   id: string;
   title: string;
@@ -18,6 +19,8 @@ export interface Recipe {
   dripper: string;
   filter?: string;
   category?: string;
+  /** Serving temperature; absent means the recipe does not say. */
+  serve?: ServeTemperature;
   order?: number;
   steps: RecipeStep[];
 }

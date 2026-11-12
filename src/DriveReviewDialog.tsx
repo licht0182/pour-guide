@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { Recipe } from './types';
 import type { Entry } from './driveSync';
 import { compareDriveRecipes, remoteRecipes } from './driveReview';
-import { ACTION_LABELS, formatTime, totalDuration, totalWater } from './recipe';
+import { ACTION_LABELS, SERVE_LABELS, formatTime, totalDuration, totalWater } from './recipe';
 
 export interface DriveReview { local: Recipe[]; remote: Entry[]; localKey: string; remoteKey: string }
 
@@ -11,7 +11,7 @@ function Preview({ recipe }: { recipe?: Recipe }) {
   return <div>
     <strong>{recipe.name}</strong>
     <p>{recipe.coffee}g · {totalWater(recipe)}g · {formatTime(totalDuration(recipe))} · {recipe.temperature}℃</p>
-    <p>{recipe.category ? `${recipe.category} · ` : ''}{recipe.dripper} · {recipe.grind}{recipe.filter ? ` · ${recipe.filter}` : ''}</p>
+    <p>{[recipe.category, recipe.serve && SERVE_LABELS[recipe.serve], recipe.dripper, recipe.grind, recipe.filter].filter(Boolean).join(' · ')}</p>
     {recipe.description && <p>{recipe.description}</p>}
     <ol>{recipe.steps.map(step => <li key={step.id}>{step.title} · {ACTION_LABELS[step.action]} · {step.duration}초 · 추가 {step.water}g{step.flowRate !== null ? ` · ${step.flowRate}g/s` : ''}{step.note ? ` — ${step.note}` : ''}</li>)}</ol>
   </div>;

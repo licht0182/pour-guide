@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, SyntheticEvent } from 'react';
 import { ArrowDown, ArrowUp, Plus, Scale, Trash2, X } from 'lucide-react';
-import type { Recipe, StepAction } from './types';
+import type { Recipe, ServeTemperature, StepAction } from './types';
 import {
   ACTION_LABELS,
   formatTime,
@@ -30,6 +30,7 @@ interface DraftRecipe {
   category: string;
   categoryMode: 'existing' | 'new';
   newCategory: string;
+  serve: ServeTemperature | '';
 }
 
 interface DraftStep {
@@ -51,6 +52,7 @@ interface StepIssues {
 }
 
 const ACTIONS: StepAction[] = ['pour', 'wait', 'swirl', 'stir'];
+const SERVE_CHOICES: { value: ServeTemperature; label: string }[] = [{ value: 'ice', label: 'ICE' }, { value: 'hot', label: 'HOT' }];
 const MAX_STEPS = 100;
 const MAX_NAME = 80;
 const MAX_CATEGORY = 80;
@@ -217,6 +219,7 @@ function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[], cat
     dripper: draft.dripper,
     filter: draft.filter,
     ...(category ? { category } : {}),
+    ...(draft.serve ? { serve: draft.serve } : {}),
     steps: steps.map(step => ({
       id: step.id,
       title: step.title,
@@ -245,6 +248,7 @@ export default function RecipeEditor({ recipe, categories, onSave, onCancel }: R
     category: recipe.category ?? '',
     categoryMode: 'existing',
     newCategory: '',
+    serve: recipe.serve ?? '',
   }));
   const [steps, setSteps] = useState<DraftStep[]>(() =>
     recipe.steps.map(step => ({
@@ -651,6 +655,28 @@ export default function RecipeEditor({ recipe, categories, onSave, onCancel }: R
                   <span id={`${editorId}-category-hint`} className="field-hint">
                     목록에 없으면 새 분류 만들기를 선택하세요.
                   </span>
+                </div>
+
+                <div className="field">
+                  <span className="field-label" id={`${editorId}-serve-label`}>ICE / HOT</span>
+                  <div className="serve-choice" role="radiogroup" aria-labelledby={`${editorId}-serve-label`}>
+                    {SERVE_CHOICES.map(choice => (
+                      <label
+                        key={choice.value}
+                        className={`category-chip serve-chip${draft.serve === choice.value ? ' is-active' : ''}`}
+                      >
+                        <input
+                          className="serve-choice-input"
+                          type="radio"
+                          name={`${editorId}-serve`}
+                          value={choice.value}
+                          checked={draft.serve === choice.value}
+                          onChange={() => patchDraft({ serve: choice.value })}
+                        />
+                        {choice.label}
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 {draft.categoryMode === 'new' && (

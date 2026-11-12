@@ -538,3 +538,38 @@ test('shared logout propagates to another tab without resurrecting cached tokens
     expect(await other.evaluate(() => sessionStorage.getItem('pour-guide.drive.session.v2'))).toBeNull();
   } finally { await other.close(); }
 });
+
+// The editor asks ICE or HOT right beside 분류, and the choice reaches the
+// stored recipe, the list badge and the detail chips.
+test('ICE and HOT sit beside the category and persist with the recipe', async ({ page }) => {
+  await page.goto('/pour-guide/');
+  const editor = page.locator('dialog.recipe-editor');
+  const openEditor = async () => {
+    await page.getByRole('button', { name: '편집', exact: true }).first().click();
+    await page.locator('dialog.recipe-editor .editor-shell').waitFor({ state: 'visible' });
+  };
+  await openEditor();
+  const group = editor.getByRole('radiogroup', { name: 'ICE / HOT', exact: true });
+  await expect(group).toBeVisible();
+  // Beside 분류, not below it: the two controls share a row.
+  const category = await editor.getByLabel('분류', { exact: true }).boundingBox();
+  const picker = await group.boundingBox();
+  expect(picker.x).toBeGreaterThan(category.x + category.width - 1);
+  expect(Math.abs(picker.y - category.y)).toBeLessThan(category.height);
+
+  // A user clicks the chip; the input itself is visually hidden.
+  await editor.locator('label.serve-chip', { hasText: 'HOT' }).click();
+  await expect(group.getByRole('radio', { name: 'HOT', exact: true })).toBeChecked();
+  await editor.getByRole('button', { name: '레시피 저장', exact: true }).click();
+  await page.locator('dialog.recipe-editor .editor-shell').waitFor({ state: 'detached' });
+
+  expect(await page.locator('.serve-badge').first().innerText()).toBe('HOT');
+  await expect(page.locator('.recipe-chips').first()).toContainText('HOT');
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('pour-guide.library.v1')).recipes.filter(r => r.serve));
+  expect(stored.map(r => r.serve)).toEqual(['HOT'.toLowerCase()]);
+
+  // Reopening shows the saved choice, and a recipe without one stays unset.
+  await openEditor();
+  await expect(editor.getByRole('radiogroup', { name: 'ICE / HOT' }).getByRole('radio', { name: 'HOT' })).toBeChecked();
+  await expect(editor.getByRole('radiogroup', { name: 'ICE / HOT' }).getByRole('radio', { name: 'ICE' })).not.toBeChecked();
+});

@@ -103,6 +103,21 @@ describe('validateRecipe', () => {
     expect(validateRecipe(recipe({ filter: '가'.repeat(80) })).filter).toHaveLength(80);
   });
 
+  it('keeps ICE/HOT as a closed set and treats an absent value as unspecified', () => {
+    // Recipes saved before this field existed must keep loading unchanged.
+    expect('serve' in validateRecipe(recipe())).toBe(false);
+    expect(validateRecipe(recipe({ serve: 'ice' })).serve).toBe('ice');
+    expect(validateRecipe(recipe({ serve: 'hot' })).serve).toBe('hot');
+    expect('serve' in validateRecipe({ ...recipe(), serve: '' })).toBe(false);
+    expect('serve' in validateRecipe({ ...recipe(), serve: null })).toBe(false);
+  });
+
+  it('rejects a serving value outside ICE or HOT', () => {
+    expect(() => validateRecipe({ ...recipe(), serve: 'iced' })).toThrow(/ICE/);
+    expect(() => validateRecipe({ ...recipe(), serve: 'HOT' })).toThrow(/ICE/);
+    expect(() => validateRecipe({ ...recipe(), serve: 'heat' })).toThrow(/ICE/);
+  });
+
   it('rejects a non-string or overlong filter', () => {
     expect(() => validateRecipe({ ...recipe(), filter: 42 })).toThrow(/필터/);
     expect(() => validateRecipe(recipe({ filter: '가'.repeat(81) }))).toThrow(/필터/);

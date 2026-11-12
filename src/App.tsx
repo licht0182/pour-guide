@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Recipe, RecipeStep, StepAction } from './types';
-import { ACTION_LABELS, formatTime, getStepFlowRate, getStepSchedule, totalDuration, totalWater } from './recipe';
+import { ACTION_LABELS, SERVE_LABELS, formatTime, getStepFlowRate, getStepSchedule, totalDuration, totalWater } from './recipe';
 import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
 import DriveLibrary from './DriveLibrary';
@@ -388,7 +388,12 @@ function App() {
                     onClick={() => selectRecipe(recipe.id)}
                   >
                     <span className="recipe-select-name">{recipe.name}</span>
-                    {recipe.category && <span className="recipe-category">{recipe.category}</span>}
+                    {(recipe.category || recipe.serve) && (
+                      <span className="recipe-badges">
+                        {recipe.category && <span className="recipe-category">{recipe.category}</span>}
+                        {recipe.serve && <span className={`recipe-category serve-badge is-${recipe.serve}`}>{SERVE_LABELS[recipe.serve]}</span>}
+                      </span>
+                    )}
                     <span className="recipe-select-meta">
                       {recipe.coffee}g · {totalWater(recipe)}g · {formatTime(totalDuration(recipe))}
                     </span>
@@ -509,6 +514,7 @@ function App() {
             )}
             <div className="recipe-chips" aria-label="추출 정보">
               {active.category && <span>분류: {active.category}</span>}
+              {active.serve && <span>{SERVE_LABELS[active.serve]}</span>}
               <span>{active.dripper}</span>
               <span>{active.grind}</span>
               {active.filter && <span>필터: {active.filter}</span>}

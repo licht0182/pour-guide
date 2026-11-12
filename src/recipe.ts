@@ -1,4 +1,6 @@
-import type { Recipe, RecipeStep, StepAction } from './types';
+import type { Recipe, RecipeStep, ServeTemperature, StepAction } from './types';
+
+export const SERVE_LABELS: Record<ServeTemperature, string> = { ice: 'ICE', hot: 'HOT' };
 
 export const ACTION_LABELS: Record<StepAction, string> = {
   pour: '물 붓기',
@@ -75,6 +77,13 @@ function canonicalCategory(value: unknown): string {
   return category;
 }
 
+/** ICE/HOT is a closed set; an absent value means the recipe has no preference. */
+function canonicalServe(value: unknown): ServeTemperature | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === 'ice' || value === 'hot') return value;
+  throw new Error('제공 온도는 ICE 또는 HOT이어야 합니다.');
+}
+
 function requireOrder(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     throw new Error('순서은(는) 0 이상의 정수여야 합니다.');
@@ -133,6 +142,7 @@ export function validateRecipe(value: unknown): Recipe {
   const dripper = requireText(record.dripper, '드리퍼', MAX_TEXT, true);
   const filter = requireText(record.filter === undefined ? '' : record.filter, '필터', MAX_TEXT, true).trim();
   const category = canonicalCategory(record.category === undefined ? '' : record.category);
+  const serve = canonicalServe(record.serve);
   const order = record.order === undefined || record.order === null ? undefined : requireOrder(record.order);
   const stepList = record.steps;
   if (!Array.isArray(stepList)) fail('단계 목록이 필요합니다.');
@@ -140,7 +150,7 @@ export function validateRecipe(value: unknown): Recipe {
   if (stepList.length > MAX_STEPS) fail(`단계는 1개 이상 ${MAX_STEPS}개 이하여야 합니다.`);
   const seenIds = new Set<string>();
   const steps = stepList.map((step: unknown, index: number) => validateStep(step, index, seenIds));
-  return { id, name, description, coffee, temperature, grind, dripper, ...(filter ? { filter } : {}), ...(category ? { category } : {}), ...(order === undefined ? {} : { order }), steps };
+  return { id, name, description, coffee, temperature, grind, dripper, ...(filter ? { filter } : {}), ...(category ? { category } : {}), ...(serve === undefined ? {} : { serve }), ...(order === undefined ? {} : { order }), steps };
 }
 
 export function parseRecipe(json: string): Recipe {
