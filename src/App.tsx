@@ -29,7 +29,7 @@ import {
   Waves,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { Recipe, RecipeStep, StepAction } from './types';
+import type { Recipe, RecipeStep, ServeTemperature, StepAction } from './types';
 import { ACTION_LABELS, SERVE_LABELS, formatTime, getStepFlowRate, getStepSchedule, totalDuration, totalWater } from './recipe';
 import { useBrewTimer } from './useBrewTimer';
 import RecipeEditor from './RecipeEditor';
@@ -120,6 +120,7 @@ function App() {
   const [sidebarNotice, setSidebarNotice] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [serveFilter, setServeFilter] = useState<ServeTemperature | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [driveBusy, setDriveBusy] = useState(false);
   const theme = useTheme();
@@ -134,7 +135,7 @@ function App() {
     if (categoryFilter === null) return;
     if (categoryFilter === '' ? !hasUncategorized : !categories.includes(categoryFilter)) setCategoryFilter(null);
   }, [categoryFilter, categoryKey, hasUncategorized]);
-  const visibleRecipes = filterRecipes(library.recipes, categoryFilter);
+  const visibleRecipes = filterRecipes(library.recipes, categoryFilter, serveFilter);
   const brew = useBrewTimer(active, sound);
   const schedule = getStepSchedule(active);
   const step = active.steps[brew.snapshot.stepIndex] ?? active.steps[0];
@@ -376,7 +377,22 @@ function App() {
             </div>
           )}
 
+          <div className="category-filter" role="group" aria-label="ICE/HOT으로 레시피 보기">
+            {(['ice', 'hot'] as const).map(serve => (
+              <button
+                key={serve}
+                type="button"
+                className={`category-chip${serveFilter === serve ? ' is-active' : ''}`}
+                aria-pressed={serveFilter === serve}
+                onClick={() => setServeFilter(previous => previous === serve ? null : serve)}
+              >
+                {SERVE_LABELS[serve]}
+              </button>
+            ))}
+          </div>
+
           <div className="library-list">
+            {visibleRecipes.length === 0 && <p className="field-hint" role="status">선택한 조건에 맞는 레시피가 없습니다.</p>}
             {visibleRecipes.map((recipe, index) => {
               const selected = recipe.id === active.id;
               return (
@@ -409,7 +425,7 @@ function App() {
                       disabled={index === 0}
                       title="위로 이동"
                       aria-label={`${recipe.name} 레시피를 위로 이동`}
-                      onClick={() => setLibrary(previous => ({ ...previous, recipes: moveRecipe(previous.recipes, recipe.id, -1, categoryFilter) }))}
+                      onClick={() => setLibrary(previous => ({ ...previous, recipes: moveRecipe(previous.recipes, recipe.id, -1, categoryFilter, serveFilter) }))}
                     >
                       <ChevronUp size={16} aria-hidden="true" />
                     </button>
@@ -419,7 +435,7 @@ function App() {
                       disabled={index === visibleRecipes.length - 1}
                       title="아래로 이동"
                       aria-label={`${recipe.name} 레시피를 아래로 이동`}
-                      onClick={() => setLibrary(previous => ({ ...previous, recipes: moveRecipe(previous.recipes, recipe.id, 1, categoryFilter) }))}
+                      onClick={() => setLibrary(previous => ({ ...previous, recipes: moveRecipe(previous.recipes, recipe.id, 1, categoryFilter, serveFilter) }))}
                     >
                       <ChevronDown size={16} aria-hidden="true" />
                     </button>

@@ -573,3 +573,66 @@ test('ICE and HOT sit beside the category and persist with the recipe', async ({
   await expect(editor.getByRole('radiogroup', { name: 'ICE / HOT' }).getByRole('radio', { name: 'HOT' })).toBeChecked();
   await expect(editor.getByRole('radiogroup', { name: 'ICE / HOT' }).getByRole('radio', { name: 'ICE' })).not.toBeChecked();
 });
+
+// The recipe picker filters by ICE/HOT below 분류: one at a time, clicking the
+// active one clears it, and clearing shows everything again.
+test('ICE/HOT filters the recipe picker exclusively and clears on re-click', async ({ page }) => {
+  await page.goto('/pour-guide/');
+  // Seed one recipe per state so each filter has a determinate result.
+  await page.evaluate(() => {
+    const template = JSON.parse(localStorage.getItem('pour-guide.library.v1')).recipes[0];
+    const make = (id, name, category, serve) => ({
+      ...template, id, name,
+      ...(category ? { category } : {}),
+      ...(serve ? { serve } : {}),
+    });
+    const plain = make('r-plain', '미지정 저녁', '저녁', undefined);
+    delete plain.serve;
+    localStorage.setItem('pour-guide.library.v1', JSON.stringify({
+      activeId: 'r-ice-a',
+      recipes: [
+        make('r-ice-a', 'ICE 아침', '아침', 'ice'),
+        make('r-hot-a', 'HOT 아침', '아침', 'hot'),
+        plain,
+        make('r-hot-d', 'HOT 저녁', '저녁', 'hot'),
+      ],
+    }));
+  });
+  await page.reload();
+
+  const serving = page.getByRole('group', { name: 'ICE/HOT으로 레시피 보기', exact: true });
+  const names = () => page.locator('.recipe-select-name').allInnerTexts();
+  const ice = serving.getByRole('button', { name: 'ICE', exact: true });
+  const hot = serving.getByRole('button', { name: 'HOT', exact: true });
+
+  // It sits directly below the category row and starts with nothing selected.
+  const categories = page.getByRole('group', { name: '분류로 레시피 보기', exact: true });
+  const categoryBox = await categories.boundingBox();
+  const servingBox = await serving.boundingBox();
+  expect(servingBox.y).toBeGreaterThanOrEqual(categoryBox.y + categoryBox.height - 1);
+  await expect(ice).toHaveAttribute('aria-pressed', 'false');
+  await expect(hot).toHaveAttribute('aria-pressed', 'false');
+  expect(await names()).toEqual(['ICE 아침', 'HOT 아침', '미지정 저녁', 'HOT 저녁']);
+
+  await ice.click();
+  await expect(ice).toHaveAttribute('aria-pressed', 'true');
+  expect(await names()).toEqual(['ICE 아침']);
+
+  // Choosing the other value replaces the first instead of combining.
+  await hot.click();
+  await expect(hot).toHaveAttribute('aria-pressed', 'true');
+  await expect(ice).toHaveAttribute('aria-pressed', 'false');
+  expect(await names()).toEqual(['HOT 아침', 'HOT 저녁']);
+
+  // Re-clicking the active value clears the filter and restores every recipe.
+  await hot.click();
+  await expect(hot).toHaveAttribute('aria-pressed', 'false');
+  expect(await names()).toEqual(['ICE 아침', 'HOT 아침', '미지정 저녁', 'HOT 저녁']);
+
+  // It narrows together with the category rather than replacing it.
+  await ice.click();
+  await categories.getByRole('button', { name: '저녁', exact: true }).click();
+  await expect(page.locator('.library-list')).toContainText('선택한 조건에 맞는 레시피가 없습니다');
+  await categories.getByRole('button', { name: '아침', exact: true }).click();
+  expect(await names()).toEqual(['ICE 아침']);
+});
