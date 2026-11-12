@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Cloud, Download, RefreshCw, Upload } from 'lucide-react';
 import type { Library } from './storage';
 import { DriveAuthError, DriveNetworkError } from './driveErrors';
-import { connectDrive, driveClientId, listDriveBackups, loadGoogleIdentity, readDriveBackup, saveDriveBackup } from './googleDrive';
+import { connectDrive, driveClientId, listDriveBackups, loadGoogleIdentity, readDriveBackup, renewDriveToken, saveDriveBackup } from './googleDrive';
 import type { DriveBackup } from './googleDrive';
 import DriveConnectionStatus, { disconnectedDrive, restoredDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
-import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { clearDriveSession, driveHasGrant, withdrawDriveGrant, driveWasEnabled, forgetDrive, grantDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import type { DriveReceipt } from './driveSession';
 import DriveSaveStatus from './DriveSaveStatus';
 
@@ -27,6 +27,9 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
   const latest = useRef({ blocked, onImport });
   latest.current = { blocked, onImport };
   const lock = useRef(false);
+  // The token minted by an explicit connect in this session. A rejection of that
+  // brand-new token is a real failure, not a lapsed credential to renew.
+  const freshToken = useRef<string | null>(null);
 
   const prepare = () => {
     setError('');
@@ -49,21 +52,51 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
       await refresh(saved.token);
       if (sessionRef.current?.token === saved.token) setMessage('저장된 Google 연결과 Drive 백업 목록을 복원했습니다.');
     });
-    else if (driveWasEnabled('backup')) setMessage('백업 연결 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.');
+    else if (driveWasEnabled('backup')) {
+      if (driveHasGrant()) void renew().then(renewed => {
+        if (!renewed) setMessage('백업 연결 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.');
+      });
+      else setMessage('백업 연결 설정은 저장되어 있습니다. 인증이 만료되었거나 저장된 인증이 없습니다. Google 계정을 다시 연결해 주세요.');
+    }
   }, [session]);
   useEffect(() => {
     if (!session) return;
     const timeout = window.setTimeout(() => {
       if (sessionRef.current?.token !== session.token) return;
-      setSession(null);
-      clearDriveSession('backup');
-      setConnection(disconnectedDrive);
-      setBackups([]);
-      setSelected('');
-      setMessage('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
+      void renew().then(renewed => {
+        if (renewed) return;
+        setSession(null);
+        setBackups([]);
+        setSelected('');
+      });
     }, Math.max(0, session.expiresAt - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [session]);
+
+  // Renew the approval this device already holds instead of asking again after
+  // Google's short-lived access token lapses.
+  async function renew(): Promise<boolean> {
+    if (!driveHasGrant() || !driveClientId) return false;
+    try {
+      const renewal = await renewDriveToken();
+      await saveDriveSession('backup', renewal);
+      sessionRef.current = renewal;
+      setSession(renewal);
+      // A fresh token proves nothing yet; the refresh below records the state.
+      setConnection({ state: 'unverified', checkedAt: null });
+      setMessage('저장된 Google 승인으로 연결을 갱신했습니다.');
+      // A rejection of this newly issued token is a real failure, not a lapse.
+      freshToken.current = renewal.token;
+      await refresh(renewal.token);
+      return true;
+    } catch {
+      withdrawDriveGrant();
+      void clearDriveSession('backup');
+      setConnection(disconnectedDrive);
+      setMessage('Google 승인이 만료되었습니다. Google 계정을 다시 연결해 주세요.');
+      return false;
+    }
+  }
 
   async function run(action: () => Promise<void>) {
     if (lock.current) return;
@@ -77,8 +110,10 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
     catch (error) {
       if (token && token !== sessionRef.current?.token) return;
       if (error instanceof DriveAuthError) {
-        setSession(null); setBackups([]); setSelected('');
-        clearDriveSession('backup');
+        setBackups([]); setSelected('');
+        if (token !== freshToken.current && await renew()) return;
+        setSession(null);
+        void clearDriveSession('backup');
         setConnection(previous => ({ ...previous, state: 'error' }));
       }
       setError(error instanceof Error ? error.message : 'Drive 작업을 완료하지 못했습니다. 다시 시도해 주세요.');
@@ -123,6 +158,8 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
           let connection;
           try { connection = await connectDrive(); }
           catch (error) { setConnection({ state: 'error', checkedAt: null }); throw error; }
+          grantDrive();
+          freshToken.current = connection.token;
           const remembered = saveDriveSession('backup', connection);
           sessionRef.current = connection;
           setSession(connection);

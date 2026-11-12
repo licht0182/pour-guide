@@ -49,17 +49,20 @@ export function loadGoogleIdentity(): Promise<void> {
 }
 
 // Called directly from a click: opening the OAuth popup must retain user activation.
+// `prompt: ''` asks Google for a token without showing the consent screen, which
+// is how a device renews a grant it already holds instead of forcing the user
+// through approval again after every reload.
 let connecting: Promise<{ token: string; expiresAt: number }> | undefined;
-export function connectDrive(): Promise<{ token: string; expiresAt: number }> {
+export function connectDrive(prompt: string = 'select_account'): Promise<{ token: string; expiresAt: number }> {
   if (connecting) return connecting;
-  const pending = requestDriveToken();
+  const pending = requestDriveToken(prompt);
   connecting = pending;
   const finished = () => { if (connecting === pending) connecting = undefined; };
   void pending.then(finished, finished);
   return pending;
 }
 
-function requestDriveToken(): Promise<{ token: string; expiresAt: number }> {
+function requestDriveToken(prompt: string): Promise<{ token: string; expiresAt: number }> {
   return new Promise((resolve, reject) => {
     const oauth = oauthApi();
     if (!oauth || !driveClientId) { reject(new Error('Google 로그인 설정을 확인해 주세요.')); return; }
@@ -73,8 +76,13 @@ function requestDriveToken(): Promise<{ token: string; expiresAt: number }> {
       },
       error_callback: () => reject(new Error('로그인 창이 닫혔거나 차단되었습니다. 다시 연결해 주세요.')),
     });
-    client.requestAccessToken({ prompt: 'select_account' });
+    client.requestAccessToken({ prompt });
   });
+}
+
+/** Renews a grant the user already gave, without showing the consent screen. */
+export function renewDriveToken(): Promise<{ token: string; expiresAt: number }> {
+  return connectDrive('');
 }
 
 async function request(token: string, url: string, options: RequestInit = {}): Promise<Response> {

@@ -1,7 +1,7 @@
 import { parseRecipe, validateRecipe } from './recipe';
 import type { Recipe } from './types';
 import { DriveNetworkError, driveResponseError } from './driveErrors';
-import { connectDrive, loadGoogleIdentity } from './googleDrive';
+import { connectDrive, loadGoogleIdentity, renewDriveToken } from './googleDrive';
 export { DriveAuthError, DriveNetworkError } from './driveErrors';
 
 export interface Entry { id: string; revision: string; recipe: Recipe | null }
@@ -94,5 +94,11 @@ export class Drive {
 
 export function authorize(_clientId: string): Promise<{ token: string; expires: number }> {
   const begin = () => connectDrive().then(session => ({ token: session.token, expires: session.expiresAt }));
+  return window.google?.accounts.oauth2 ? begin() : loadGoogleIdentity().then(begin);
+}
+
+/** Renews approval this device already holds, without a consent screen. */
+export function renewAuthorization(): Promise<{ token: string; expires: number }> {
+  const begin = () => renewDriveToken().then(session => ({ token: session.token, expires: session.expiresAt }));
   return window.google?.accounts.oauth2 ? begin() : loadGoogleIdentity().then(begin);
 }

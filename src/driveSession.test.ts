@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { clearDriveSession, driveHasGrant, driveWasEnabled, enableDriveSync, forgetDrive, grantDrive, withdrawDriveGrant, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import { driveClientId } from './googleDrive';
 
 function storage() {
@@ -133,6 +133,33 @@ describe('Drive reload persistence', () => {
     forgetDrive('backup');
     expect(loadDriveSession('sync')).toBeNull();
     expect(localStorage.getItem('pour-guide.drive.sync.session.v1')).toBeNull();
+  });
+  // The reported defect: Google access tokens last about an hour, so a reload
+  // later must renew instead of forgetting that this device already approved.
+  it('keeps the user approval after the access token lapses', () => {
+    grantDrive();
+    saveDriveSession('sync', { token: 'expired', expiresAt: Date.now() - 1000 });
+    expect(loadDriveSession('sync')).toBeNull();
+    expect(driveHasGrant()).toBe(true);
+    expect(driveWasEnabled('sync')).toBe(true);
+  });
+  it('treats a device that enabled Drive before the approval marker as approved', () => {
+    enableDriveSync();
+    expect(driveHasGrant()).toBe(true);
+  });
+  it('lets a recorded refusal stop renewal even when a stale preference says enabled', () => {
+    enableDriveSync();
+    withdrawDriveGrant();
+    expect(driveHasGrant()).toBe(false);
+  });
+  it('withdraws the approval on an explicit disconnect', () => {
+    enableDriveSync();
+    grantDrive();
+    saveDriveSession('backup', { token: 'live', expiresAt: Date.now() + 3600000 });
+    forgetDrive('backup');
+    expect(driveHasGrant()).toBe(false);
+    expect(loadDriveSession('backup')).toBeNull();
+    expect(driveWasEnabled('backup')).toBe(false);
   });
   it('discards a tab copy when another tab disconnects', () => {
     let onStorage: ((event: { key: string; newValue: null }) => void) | undefined;

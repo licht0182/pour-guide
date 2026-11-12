@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Library } from './storage';
-import { authorize, Drive, DriveAuthError, DriveNetworkError, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
+import { authorize, Drive, DriveAuthError, DriveNetworkError, mergeEntries, parseSnapshot, renewAuthorization, trackChanges } from './driveSync';
 import type { Entry } from './driveSync';
 import { disconnectedDrive, restoredDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
-import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { clearDriveSession, driveHasGrant, withdrawDriveGrant, driveWasEnabled, enableDriveSync, forgetDrive, grantDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import type { DriveReceipt } from './driveSession';
 import { entryKey, needsDriveReview, recipeKey, remoteRecipes, replaceDriveEntries } from './driveReview';
 import type { DriveReview } from './DriveReviewDialog';
@@ -34,6 +34,9 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   const latest = useRef(library);
   const paused = useRef(blocked);
   const entries = useRef<Entry[] | null>(null);
+  const renewedFor = useRef<string | null>(null);
+  // A token minted by an explicit connect: a server rejection of it is real.
+  const freshToken = useRef<string | null>(null);
   latest.current = library;
   paused.current = blocked;
 
@@ -78,12 +81,9 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     const attempted = auth.current;
     try {
       if (auth.current.expires <= Date.now()) {
-        auth.current = null;
-        clearDriveSession('sync');
-        closeReview();
-        setConnected(false);
-        setConnection(previous => ({ ...previous, state: 'error' }));
-        setStatus('Google 연결이 만료되었습니다. 다시 연결하면 자동 동기화를 재개합니다.');
+        // renew() rotates the credential; finally reschedules this run because
+        // the stored object changed, so nothing is started twice here.
+        await renew();
         return;
       }
       observe();
@@ -136,8 +136,16 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       if (auth.current !== attempted) return;
       if (error instanceof DriveAuthError) {
         closeReview();
+        const rejected = attempted?.token ?? null;
         auth.current = null;
-        clearDriveSession('sync');
+        // Retry once with a renewed token; a permanent rejection must not loop.
+        if (rejected !== freshToken.current && renewedFor.current !== rejected && await renew() && auth.current) {
+          renewedFor.current = rejected;
+          working.current = false;
+          setBusy(false);
+          void sync();
+          return;
+        }
         setConnected(false);
       }
       if (mounted.current) {
@@ -173,6 +181,13 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     setConnection(restoredDrive(next));
     setStatus(next ? '공유 Google 연결을 받았습니다.' : '공유 Google 연결이 해제되었거나 만료되었습니다. 다시 연결해 주세요.');
   }), []);
+  // On load, a saved approval whose access token already lapsed renews itself
+  // instead of leaving the panel with no connection to show.
+  useEffect(() => {
+    if (auth.current || !driveHasGrant()) return;
+    if (loadDriveSession('sync')) return;
+    void renew();
+  }, []);
   useEffect(() => {
     if (auth.current && !enabledRef.current) void checkConnection();
   }, [connected, enabled, authRevision]);
@@ -190,12 +205,13 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     if (!connected || !expiresAt) return;
     const timer = window.setTimeout(() => {
       if (auth.current?.expires !== expiresAt) return;
-      auth.current = null;
-      clearDriveSession('sync');
-      closeReview();
-      setConnected(false);
-      setConnection(previous => ({ ...previous, state: 'error' }));
-      setStatus('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
+      void renew().then(renewed => {
+        if (renewed) return;
+        if (auth.current?.expires !== expiresAt) return;
+        auth.current = null;
+        closeReview();
+        setConnected(false);
+      });
     }, Math.max(0, expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
   }, [connected, expiresAt]);
@@ -205,6 +221,8 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     setConnection(previous => ({ ...previous, state: 'checking' }));
     try {
       auth.current = await authorize(CLIENT_ID);
+      grantDrive();
+      freshToken.current = auth.current.token;
       const remembered = saveDriveSession('sync', { token: auth.current.token, expiresAt: auth.current.expires });
       setEnabled(true);
       enabledRef.current = true;
@@ -224,11 +242,10 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   async function checkConnection() {
     if (working.current || !auth.current) return;
     if (auth.current.expires <= Date.now()) {
-      auth.current = null;
-      clearDriveSession('sync');
-      setConnected(false);
-      setConnection(previous => ({ ...previous, state: 'error' }));
-      setStatus('Google 연결이 만료되었습니다. 다시 연결해 주세요.');
+      if (!await renew()) {
+        setConnection(previous => ({ ...previous, state: 'error' }));
+        setStatus('Google 승인이 만료되었습니다. 다시 연결해 주세요.');
+      }
       return;
     }
     const session = auth.current;
@@ -250,6 +267,31 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     } finally {
       working.current = false;
       if (mounted.current) setBusy(false);
+    }
+  }
+  // A lapsed Google token is not a withdrawn approval: renew the grant this
+  // device already holds so a reload never forces the consent screen again.
+  async function renew(): Promise<boolean> {
+    if (!driveHasGrant() || !CLIENT_ID) return false;
+    try {
+      const session = await renewAuthorization();
+      if (!mounted.current) return false;
+      auth.current = { token: session.token, expires: session.expires };
+      saveDriveSession('sync', { token: session.token, expiresAt: session.expires });
+      setConnected(true);
+      setAuthRevision(value => value + 1);
+      setStatus('저장된 Google 승인으로 연결을 갱신했습니다.');
+      return true;
+    } catch {
+      // Google refused without showing a prompt: the approval is really gone.
+      withdrawDriveGrant();
+      void clearDriveSession('sync');
+      if (mounted.current) {
+        setConnected(false);
+        setConnection(previous => ({ ...previous, state: 'error' }));
+        setStatus('Google 승인이 만료되었습니다. 다시 연결해 주세요.');
+      }
+      return false;
     }
   }
   function disconnect() {

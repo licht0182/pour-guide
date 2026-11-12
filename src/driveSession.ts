@@ -113,6 +113,34 @@ export function clearDriveSession(_mode: DriveMode): void {
 
 export function enableDriveSync(): void { write(key('sync', 'enabled'), 'on'); }
 
+// Google access tokens live about an hour, but the user's approval does not
+// expire. This marker records the approval itself so a reload can renew the
+// token silently instead of asking for consent again.
+const GRANT_KEY = 'pour-guide.drive.grant.v1';
+export function grantDrive(): void { write(GRANT_KEY, 'on'); }
+/** Records that Google no longer honors the approval, so (re)loads stop renewing. */
+export function withdrawDriveGrant(): void { write(GRANT_KEY, 'off'); }
+// A device that enabled Drive before this marker existed still holds an
+// approval, so a missing marker falls back to the saved preference. An explicit
+// 'off' or disconnect is authoritative and never renews again.
+export function driveHasGrant(): boolean {
+  let granted = false;
+  let refused = false;
+  let legacy = false;
+  for (const item of stores()) {
+    try {
+      const marker = item.storage.getItem(GRANT_KEY);
+      if (marker === 'on') granted = true;
+      else if (marker === 'off') refused = true;
+      else if (item.storage.getItem(key('sync', 'enabled')) === 'on' || item.storage.getItem(key('backup', 'enabled')) === 'on') legacy = true;
+    } catch { /* Unavailable storage. */ }
+  }
+  // A refusal anywhere stops silent renewal; it must not be overridden by an
+  // older enabled preference in the other storage.
+  if (refused) return false;
+  return granted || legacy;
+}
+
 export function driveWasEnabled(mode: DriveMode): boolean {
   return stores().some(item => {
     try { return item.storage.getItem(key(mode, 'enabled')) === 'on'; } catch { return false; }
@@ -120,6 +148,7 @@ export function driveWasEnabled(mode: DriveMode): boolean {
 }
 
 export function forgetDrive(_mode: DriveMode): void {
+  write(GRANT_KEY, null);
   write(SESSION_KEY, null);
   for (const mode of modes) {
     write(key(mode, 'session'), null);

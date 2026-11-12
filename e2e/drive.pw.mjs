@@ -37,7 +37,7 @@ async function setup(page, { preload = true } = {}) {
     if (state.hold) await state.hold;
     return route.fulfill({ json: { files: state.snapshots.map((_, id) => ({ id: String(id) })) } });
   });
-  const sdk = `window.__oauthRequests=0;window.google={accounts:{oauth2:{initTokenClient: config => ({requestAccessToken: () => {window.__oauthRequests++;config.callback({access_token:'test-token', expires_in:3600});}}),hasGrantedAllScopes:()=>true,revoke: (token,cb) => cb()}}};`;
+  const sdk = `window.__oauthRequests=0;window.__oauthPrompts=[];window.google={accounts:{oauth2:{initTokenClient: config => ({requestAccessToken: options => {window.__oauthRequests++;window.__oauthPrompts.push(options?.prompt ?? null);config.callback({access_token:'test-token', expires_in:3600});}}),hasGrantedAllScopes:()=>true,revoke: (token,cb) => cb()}}};`;
   if (preload) await page.addInitScript(sdk);
   await page.route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: sdk }));
   await page.goto('/pour-guide/');
@@ -94,6 +94,32 @@ test('expired authorization offers reconnect directly', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
   state.unauthorized = false;
   await connect(page);
+});
+// The reported defect: a reload hours later found Drive "미연결" and demanded a
+// fresh consent, even though the user had already approved this device.
+test('a lapsed Google token renews on reload without asking for consent again', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  // Age the stored credential past Google's ~1 hour token lifetime.
+  await page.evaluate(() => {
+    // A reload in the same tab still sees the session copy, so age both stores
+    // exactly as an hour of elapsed time would.
+    for (const store of [localStorage, sessionStorage]) {
+      for (const name of ['pour-guide.drive.session.v2', 'pour-guide.drive.sync.session.v1', 'pour-guide.drive.backup.session.v1']) {
+        const raw = store.getItem(name);
+        if (raw) store.setItem(name, JSON.stringify({ ...JSON.parse(raw), expiresAt: Date.now() - 60000 }));
+      }
+    }
+    window.__oauthRequests = 0;
+    window.__oauthPrompts = [];
+  });
+  await page.reload();
+  await expandDrive(page);
+  // Reconnected with no consent screen: Google received a silent prompt.
+  await expect(page.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Google Drive 연결', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__oauthPrompts)).toEqual(['']);
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(1);
 });
 test('fresh device does not resurrect a deleted preset', async ({ page }) => {
   const state = await setup(page);
@@ -262,7 +288,7 @@ test('a saved connection still reads as connected when a reload cannot reach Dri
   await expect(section.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
 });
 
-test('expired saved credentials retain the sync preference but never claim a live connection', async ({ page }) => {
+test('a renewal Google refuses leaves the device signed out instead of claiming a connection', async ({ page }) => {
   await setup(page);
   await connect(page);
   await page.evaluate(() => {
@@ -273,18 +299,27 @@ test('expired saved credentials retain the sync preference but never claim a liv
       storage.setItem(key, JSON.stringify(session));
     }
   });
+  // The approval this device held is gone: Google refuses a silent renewal.
+  // Registered last, so it overrides the working SDK from setup.
+  await page.addInitScript(() => {
+    window.__oauthPrompts = [];
+    window.google = { accounts: { oauth2: {
+      initTokenClient: config => ({ requestAccessToken: options => { window.__oauthPrompts.push(options?.prompt ?? null); config.error_callback(); } }),
+      hasGrantedAllScopes: () => true,
+      revoke: (token, callback) => callback(),
+    } } };
+  });
   await page.reload();
   await expandDrive(page);
   const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
-  await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toBeVisible();
+  await expect(section.getByRole('status').filter({ hasText: 'Google 승인이 만료되었습니다' })).toBeVisible();
   await expect(section.getByRole('button', { name: 'Google Drive 연결', exact: true })).toBeVisible();
   await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toHaveCount(0);
+  // One silent attempt, never a consent screen behind the user's back.
+  expect(await page.evaluate(() => window.__oauthPrompts)).toEqual(['']);
+  expect(await page.evaluate(() => localStorage.getItem('pour-guide.drive.grant.v1'))).toBe('off');
   expect(await page.evaluate(() => sessionStorage.getItem('pour-guide.drive.session.v2'))).toBeNull();
-  await section.getByRole('button', { name: '연결 해제', exact: true }).click();
-  await page.reload();
-  await expect(section.getByRole('status').filter({ hasText: '자동 동기화 설정은 저장되어 있습니다' })).toHaveCount(0);
 });
-
 test('new device retrieves the actual uploaded recipe from Drive', async ({ page, browser }) => {
   const state = await setup(page);
   await connect(page);
