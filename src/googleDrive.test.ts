@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { connectDrive, DriveAuthError, listDriveBackups, readDriveBackup, saveDriveBackup } from './googleDrive';
+import { DriveNetworkError } from './driveErrors';
 import { PRESETS } from './recipe';
 import { encodeBackup } from './driveBackup';
 
@@ -42,6 +43,14 @@ describe('Google Drive requests', () => {
   it('does not report a successful save when Drive returns different contents', async () => {
     mockNetwork([Response.json({ id: 'wrong' }), new Response(encodeBackup({ ...library, recipes: [{ ...PRESETS[0], name: '다른 내용' }] }))]);
     await expect(saveDriveBackup('token', library)).rejects.toThrow(/일치하지/);
+  });
+  it('marks transport failures apart from rejected credentials so a saved connection survives', async () => {
+    mockNetwork([]);
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
+    const result = await listDriveBackups('token').catch(error => error);
+    expect(result).toBeInstanceOf(DriveNetworkError);
+    expect(result).not.toBeInstanceOf(DriveAuthError);
+    expect(result.message).toContain('연결 상태는 유지');
   });
   it('rejects closed popups and missing consent', async () => {
     vi.stubGlobal('window', { google: { accounts: { oauth2: {

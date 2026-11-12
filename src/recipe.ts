@@ -67,6 +67,21 @@ function requireNumber(value: unknown, label: string, min: number, max: number):
   return value;
 }
 
+/** Category labels are display text: whitespace collapses, ends are trimmed, empty means absent. */
+function canonicalCategory(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('분류은(는) 문자열이어야 합니다.');
+  const category = value.replace(/\s+/gu, ' ').trim();
+  if (category.length > MAX_TEXT) throw new Error(`분류은(는) ${MAX_TEXT}자 이하여야 합니다.`);
+  return category;
+}
+
+function requireOrder(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error('순서은(는) 0 이상의 정수여야 합니다.');
+  }
+  return value;
+}
+
 function requireAction(value: unknown, label: string): StepAction {
   if (typeof value === 'string') {
     switch (value) {
@@ -117,13 +132,15 @@ export function validateRecipe(value: unknown): Recipe {
   const grind = requireText(record.grind, '분쇄도', MAX_TEXT, true);
   const dripper = requireText(record.dripper, '드리퍼', MAX_TEXT, true);
   const filter = requireText(record.filter === undefined ? '' : record.filter, '필터', MAX_TEXT, true).trim();
+  const category = canonicalCategory(record.category === undefined ? '' : record.category);
+  const order = record.order === undefined || record.order === null ? undefined : requireOrder(record.order);
   const stepList = record.steps;
   if (!Array.isArray(stepList)) fail('단계 목록이 필요합니다.');
   if (stepList.length === 0) fail('단계는 1개 이상이어야 합니다.');
   if (stepList.length > MAX_STEPS) fail(`단계는 1개 이상 ${MAX_STEPS}개 이하여야 합니다.`);
   const seenIds = new Set<string>();
   const steps = stepList.map((step: unknown, index: number) => validateStep(step, index, seenIds));
-  return { id, name, description, coffee, temperature, grind, dripper, ...(filter ? { filter } : {}), steps };
+  return { id, name, description, coffee, temperature, grind, dripper, ...(filter ? { filter } : {}), ...(category ? { category } : {}), ...(order === undefined ? {} : { order }), steps };
 }
 
 export function parseRecipe(json: string): Recipe {
@@ -135,6 +152,15 @@ export function parseRecipe(json: string): Recipe {
     fail('JSON 형식이 올바르지 않습니다.');
   }
   return validateRecipe(value);
+}
+
+/**
+ * Drops the Drive order metadata. The Library.recipes array position is the
+ * canonical order, so display state never depends on a stored index.
+ */
+export function withoutRecipeOrder(recipe: Recipe): Recipe {
+  const { order: _order, ...rest } = recipe;
+  return rest;
 }
 
 export function scaleRecipe(recipe: Recipe, coffee: number): Recipe {

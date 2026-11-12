@@ -1,4 +1,5 @@
 export class DriveAuthError extends Error {}
+export class DriveNetworkError extends Error {}
 
 // Google uses 403 for project configuration and quota errors as well as permissions.
 // Keep the session for errors that signing in again cannot fix.

@@ -3,8 +3,9 @@ import { test, expect } from '@playwright/test';
 // Run the production bundle in Chromium. Only Google endpoints are replaced;
 // React, localStorage, timers, navigation and user interactions are real.
 async function setup(page, { preload = true } = {}) {
-  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, apiDisabled: false, corruptReads: false, failUpload: false, listFailure: 0, hold: null };
+  const state = { snapshots: [], writes: [], backups: [], unauthorized: false, apiDisabled: false, corruptReads: false, failUpload: false, listFailure: 0, hold: null, unreachable: false };
   await page.route('https://www.googleapis.com/**', async route => {
+    if (state.unreachable) return route.abort('failed');
     if (state.unauthorized) return route.fulfill({ status: 401, body: '{}' });
     if (state.apiDisabled) return route.fulfill({ status: 403, json: { error: { code: 403, details: [{ reason: 'SERVICE_DISABLED', metadata: { service: 'drive.googleapis.com' } }] } } });
     const url = new URL(route.request().url());
@@ -242,6 +243,25 @@ test('manual backup connection, selection and verified receipt survive a reload'
   await expect(section.getByRole('status').filter({ hasText: 'Drive 저장·다시 읽기 확인:' })).toHaveCount(0);
 });
 
+test('a saved connection still reads as connected when a reload cannot reach Drive', async ({ page }) => {
+  const state = await setup(page);
+  const section = page.getByRole('region', { name: 'Google Drive 동기화', exact: true });
+  await connect(page);
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toBeVisible();
+  // The document still loads; only Drive is unreachable, as on a dropped network.
+  state.unreachable = true;
+  await page.reload();
+  await expandDrive(page);
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인됨' })).toContainText('최근 확인:');
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 미연결' })).toHaveCount(0);
+  await expect(section.getByRole('status').filter({ hasText: 'Drive 연결 확인 실패' })).toHaveCount(0);
+  await expect(section.getByRole('button', { name: '지금 동기화', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__oauthRequests)).toBe(0);
+  state.unreachable = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(section.getByRole('status').filter({ hasText: '동기화 완료' })).toBeVisible();
+});
+
 test('expired saved credentials retain the sync preference but never claim a live connection', async ({ page }) => {
   await setup(page);
   await connect(page);
@@ -280,6 +300,40 @@ test('new device retrieves the actual uploaded recipe from Drive', async ({ page
     remote.snapshots = state.snapshots;
     await connect(other);
     expect((await localRecipes(other)).some(recipe => recipe.name === 'Cloud round trip recipe')).toBe(true);
+  } finally { await freshContext.close(); }
+});
+
+test('categories and the arranged order survive Drive sync and a fresh device', async ({ page, browser }) => {
+  const state = await setup(page);
+  await connect(page);
+  // Arrange a deliberate non-alphabetical order with categories.
+  const arranged = await page.evaluate(() => {
+    const library = JSON.parse(localStorage.getItem('pour-guide.library.v1'));
+    const [first, second, third] = library.recipes;
+    library.recipes = [{ ...third, category: '저녁' }, { ...first, category: '아침' }, second];
+    library.activeId = third.id;
+    localStorage.setItem('pour-guide.library.v1', JSON.stringify(library));
+    return library.recipes.map(recipe => recipe.name);
+  });
+  await page.reload();
+  await expandDrive(page);
+  const byPosition = () => [...state.snapshots.at(-1).entries].sort((a, b) => a.recipe.order - b.recipe.order);
+  await expect.poll(() => state.snapshots.at(-1).entries.every(entry => entry.recipe?.order !== undefined)).toBe(true);
+  await expect.poll(() => byPosition().map(entry => entry.recipe?.name)).toEqual(arranged);
+  expect(byPosition().map(entry => entry.recipe?.category)).toEqual(['저녁', '아침', undefined]);
+
+  const freshContext = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const other = await freshContext.newPage();
+    const remote = await setup(other);
+    remote.snapshots = state.snapshots;
+    await connect(other);
+    expect((await localRecipes(other)).map(recipe => recipe.name)).toEqual(arranged);
+    expect((await localRecipes(other)).map(recipe => recipe.category)).toEqual(['저녁', '아침', undefined]);
+    // The sidebar shows that order, and the first category filters within it.
+    await expect(other.locator('.recipe-item .recipe-select-name')).toHaveText(arranged);
+    await other.getByRole('group', { name: '분류로 레시피 보기' }).getByRole('button', { name: '아침', exact: true }).click();
+    await expect(other.locator('.recipe-item .recipe-select-name')).toHaveText(['데일리 V60']);
   } finally { await freshContext.close(); }
 });
 

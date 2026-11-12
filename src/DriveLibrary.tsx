@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Cloud, Download, RefreshCw, Upload } from 'lucide-react';
 import type { Library } from './storage';
-import { connectDrive, driveClientId, DriveAuthError, listDriveBackups, loadGoogleIdentity, readDriveBackup, saveDriveBackup } from './googleDrive';
+import { DriveAuthError, DriveNetworkError } from './driveErrors';
+import { connectDrive, driveClientId, listDriveBackups, loadGoogleIdentity, readDriveBackup, saveDriveBackup } from './googleDrive';
 import type { DriveBackup } from './googleDrive';
-import DriveConnectionStatus, { disconnectedDrive } from './DriveConnectionStatus';
+import DriveConnectionStatus, { disconnectedDrive, restoredDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
-import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { clearDriveSession, driveWasEnabled, forgetDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import type { DriveReceipt } from './driveSession';
 import DriveSaveStatus from './DriveSaveStatus';
 
@@ -22,7 +23,7 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
   const [selected, setSelected] = useState('');
   const [message, setMessage] = useState(() => driveWasEnabled('backup') ? '백업 연결 설정이 저장되어 있습니다. 유효한 Google 연결을 복원합니다.' : '');
   const [error, setError] = useState('');
-  const [connection, setConnection] = useState<DriveConnection>(disconnectedDrive);
+  const [connection, setConnection] = useState<DriveConnection>(() => restoredDrive(session));
   const latest = useRef({ blocked, onImport });
   latest.current = { blocked, onImport };
   const lock = useRef(false);
@@ -39,7 +40,7 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
     setSession(next);
     setReceipt(loadDriveReceipt('backup'));
     setBackups([]); setSelected(''); setError('');
-    setConnection(next ? { state: 'unverified', checkedAt: null } : disconnectedDrive);
+    setConnection(restoredDrive(next));
     setMessage(next ? '자동 동기화와 공유한 Google 연결을 사용합니다.' : '공유 Google 연결이 해제되었거나 만료되었습니다. 다시 연결해 주세요.');
   }), []);
   useEffect(() => {
@@ -93,11 +94,15 @@ export default function DriveLibrary({ library, blocked, onImport, onBusy }: Pro
     try {
       const files = await listDriveBackups(token);
       if (sessionRef.current?.token !== token) return;
+      markDriveSessionVerified();
       setBackups(files);
       setSelected(previous => files.some(file => file.id === previous) ? previous : files[0]?.id ?? '');
       setConnection({ state: 'verified', checkedAt: Date.now() });
     } catch (error) {
-      if (sessionRef.current?.token === token) setConnection(previous => ({ ...previous, state: 'error' }));
+      if (sessionRef.current?.token === token) {
+        if (error instanceof DriveNetworkError) setConnection(restoredDrive(sessionRef.current));
+        else setConnection(previous => ({ ...previous, state: 'error' }));
+      }
       throw error;
     }
   }

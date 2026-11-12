@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Drive, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
+import { Drive, DriveAuthError, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
+import { DriveNetworkError } from './driveErrors';
 import { PRESETS } from './recipe';
 
 const r = PRESETS[0];
-const old = { id: r.id, revision: '0000000000000001-a', recipe: r };
+const old = { id: r.id, revision: '0000000000000001-a', recipe: { ...r, order: 0 } };
 const deleted = { ...old, revision: '0000000000000002-b', recipe: null };
 describe('Drive sync', () => {
   it('merges concurrent devices deterministically and retains deletions', () => {
@@ -16,6 +17,17 @@ describe('Drive sync', () => {
     expect(trackChanges([old], [r])).toEqual([old]);
     expect(trackChanges([old], [])[0].recipe).toBeNull();
     expect(trackChanges([old], [{ ...r, name: 'Changed' }])[0].revision > old.revision).toBe(true);
+  });
+  it('records the library position and revises recipes when only the order moves', () => {
+    const second = { ...PRESETS[1], id: 'second' };
+    const stored = trackChanges([old], [second, r]);
+    expect(stored.map(entry => entry.recipe?.order)).toEqual([1, 0]);
+    const revisionOf = (set: typeof stored, id: string) => set.find(entry => entry.id === id)!.revision;
+    const moved = trackChanges(stored, [r, second]);
+    // Swapping two recipes changes both positions, so both get a new revision.
+    expect(revisionOf(moved, r.id) > revisionOf(stored, r.id)).toBe(true);
+    expect(revisionOf(moved, 'second') > revisionOf(stored, 'second')).toBe(true);
+    expect(trackChanges(moved, [r, second])).toEqual(moved);
   });
   it('rejects corrupt and future snapshots', () => {
     expect(() => parseSnapshot({ version: 2, entries: [] })).toThrow();
@@ -52,5 +64,13 @@ describe('Drive sync', () => {
       .mockResolvedValueOnce(Response.json({ version: 1, entries: [deleted] })));
     try { await expect(new Drive('token').write([old])).rejects.toThrow(/일치하지/); }
     finally { vi.unstubAllGlobals(); }
+  });
+  it('reports a dropped connection as a transport failure, not a rejected login', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
+    try {
+      const failure = await new Drive('token').read().catch(error => error);
+      expect(failure).toBeInstanceOf(DriveNetworkError);
+      expect(failure).not.toBeInstanceOf(DriveAuthError);
+    } finally { vi.unstubAllGlobals(); }
   });
 });

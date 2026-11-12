@@ -337,11 +337,70 @@ h3 {
   gap: 8px;
 }
 
+.category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.category-chip {
+  padding: 5px 12px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--label-secondary);
+  background: var(--fill);
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.category-chip:hover {
+  background: var(--fill-strong);
+}
+
+.category-chip.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.recipe-category {
+  justify-self: start;
+  padding: 1px 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--label-secondary);
+  background: var(--fill);
+  border-radius: 999px;
+}
+
+.recipe-item-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px 6px;
+}
+
+.recipe-move {
+  display: grid;
+  width: 36px;
+  min-height: 34px;
+  color: var(--label-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  place-items: center;
+}
+
+.recipe-move:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .recipe-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
   background: var(--surface-secondary);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -362,7 +421,7 @@ h3 {
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 12px 14px 2px;
   text-align: left;
   background: transparent;
   border: 0;
@@ -395,16 +454,15 @@ h3 {
 
 .recipe-delete {
   display: grid;
-  min-width: 44px;
-  min-height: 44px;
-  margin-right: 4px;
-  padding: 0 10px;
+  min-width: 36px;
+  min-height: 34px;
+  padding: 0 8px;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--label-tertiary);
   background: transparent;
   border: 0;
-  border-radius: 11px;
+  border-radius: 9px;
   place-items: center;
 }
 

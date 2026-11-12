@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PRESETS } from './recipe';
 import { compareDriveRecipes, needsDriveReview, remoteRecipes, replaceDriveEntries } from './driveReview';
 import { mergeEntries } from './driveSync';
+import type { Entry } from './driveSync';
+import type { Recipe } from './types';
 
 const recipe = PRESETS[0];
 const base = [{ id: recipe.id, recipe, revision: '0000000000000001-base' }];
@@ -23,6 +25,30 @@ describe('Drive overwrite review', () => {
     const resolved = replaceDriveEntries([recipe], remote, base);
     expect(remoteRecipes(mergeEntries(remote, resolved))).toEqual([recipe]);
     expect(resolved.find(entry => entry.id === 'cloud-only')?.recipe).toBeNull();
+  });
+  it('restores the arranged order from stored positions and compares order changes', () => {
+    const second = { ...PRESETS[1], id: 'second' };
+    const positioned = (list: Recipe[]): Entry[] => list.map((recipe, order) => ({
+      id: recipe.id, revision: '0000000000000005-order', recipe: { ...recipe, order },
+    }));
+    const arranged = positioned([second, recipe]);
+    expect(remoteRecipes(arranged).map(item => item.id)).toEqual([second.id, recipe.id]);
+    expect(needsDriveReview([second, recipe], arranged, arranged)).toBe(false);
+    const swapped = positioned([recipe, second]);
+    expect(needsDriveReview([second, recipe], swapped, arranged)).toBe(true);
+  });
+  it('keeps legacy snapshots without positions from looking reordered', () => {
+    const second = { ...PRESETS[1], id: 'second' };
+    const legacy = [recipe, second].map((item, index) => ({ id: item.id, revision: `000000000000000${index}-legacy`, recipe: item }));
+    expect(needsDriveReview([second, recipe], legacy, legacy)).toBe(false);
+  });
+  it('reports a recipe that only moved as a 순서 difference', () => {
+    const second = { ...PRESETS[1], id: 'second' };
+    const difference = compareDriveRecipes([second, recipe], [recipe, second]);
+    expect(difference.map(item => ({ id: item.id, fields: item.fields }))).toEqual([
+      { id: second.id, fields: ['순서'] },
+      { id: recipe.id, fields: ['순서'] },
+    ]);
   });
   it('shows additions, removals and changed fields including step notes', () => {
     const remote = [{ ...recipe, name: '바뀐 이름', steps: recipe.steps.map((step, i) => i ? step : { ...step, note: '다른 메모' }) }, { ...recipe, id: 'new' }];

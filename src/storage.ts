@@ -1,5 +1,5 @@
 import type { Recipe } from './types';
-import { PRESETS, parseRecipe } from './recipe';
+import { PRESETS, parseRecipe, withoutRecipeOrder } from './recipe';
 
 const LIBRARY_KEY = 'pour-guide.library.v1';
 
@@ -24,7 +24,9 @@ export function loadLibrary(): Library {
     if (!Array.isArray(candidates) || !candidates.length) return fallbackLibrary();
     const recipes = candidates.flatMap(item => {
       try {
-        return [parseRecipe(JSON.stringify(item))];
+        // The saved array order is the truth; a stored index would go stale
+        // as soon as the list is rearranged.
+        return [withoutRecipeOrder(parseRecipe(JSON.stringify(item)))];
       } catch {
         return [];
       }
@@ -65,5 +67,6 @@ export function downloadRecipe(recipe: Recipe): void {
 
 export async function readRecipeFile(file: File): Promise<Recipe> {
   if (file.size > 512 * 1024) throw new Error('파일이 너무 큽니다. 512KB 이하의 JSON 파일을 선택해 주세요.');
-  return parseRecipe(await file.text());
+  // A shared file can carry the sender's list position; place it by array order.
+  return withoutRecipeOrder(parseRecipe(await file.text()));
 }

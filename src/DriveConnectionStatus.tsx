@@ -6,6 +6,11 @@ export interface DriveConnection {
 }
 
 export const disconnectedDrive: DriveConnection = { state: 'disconnected', checkedAt: null };
+/** The connection a valid stored credential already proved, or its pre-check state. */
+export function restoredDrive(session: { verifiedAt?: number } | null): DriveConnection {
+  if (!session) return disconnectedDrive;
+  return session.verifiedAt ? { state: 'verified', checkedAt: session.verifiedAt } : { state: 'unverified', checkedAt: null };
+}
 
 export default function DriveConnectionStatus({ connection }: { connection: DriveConnection }) {
   const { state, checkedAt } = connection;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import { driveClientId } from './googleDrive';
 
 function storage() {
@@ -37,6 +37,28 @@ describe('Drive reload persistence', () => {
       sessionStorage.setItem('pour-guide.drive.session.v2', value);
       expect(loadDriveSession('sync')).toBeNull();
     }
+  });
+  it('restores the last proven Drive state with the credential after a reload', () => {
+    const session = { token: 'proven', expiresAt: Date.now() + 3600000 };
+    saveDriveSession('sync', session);
+    expect(loadDriveSession('backup')).toEqual(session);
+    const verified = Date.now() - 5000;
+    markDriveSessionVerified();
+    const restored = loadDriveSession('backup');
+    expect(restored?.token).toBe('proven');
+    expect(restored?.verifiedAt).toBeGreaterThanOrEqual(verified);
+    sessionStorage.removeItem('pour-guide.drive.session.v2');
+    expect(loadDriveSession('sync')?.verifiedAt).toBe(restored?.verifiedAt);
+  });
+  it('never attaches an old verification to a newly authorized credential', () => {
+    saveDriveSession('sync', { token: 'first', expiresAt: Date.now() + 3600000 });
+    markDriveSessionVerified();
+    saveDriveSession('sync', { token: 'second', expiresAt: Date.now() + 3600000 });
+    expect(loadDriveSession('sync')).toEqual({ token: 'second', expiresAt: expect.any(Number) });
+  });
+  it('ignores a future-dated or forged verification and unverified legacy copies', () => {
+    localStorage.setItem('pour-guide.drive.session.v2', JSON.stringify({ clientId: driveClientId, token: 'forged', expiresAt: Date.now() + 3600000, verifiedAt: Date.now() + 3600000 }));
+    expect(loadDriveSession('sync')).toEqual({ token: 'forged', expiresAt: expect.any(Number) });
   });
   it('retains verified receipt history until the user disconnects', () => {
     saveDriveSession('backup', { token: 'valid', expiresAt: Date.now() + 3600000 });
