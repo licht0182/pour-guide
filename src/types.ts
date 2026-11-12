@@ -16,6 +16,7 @@ export interface Recipe {
   temperature: number;
   grind: string;
   dripper: string;
+  filter?: string;
   steps: RecipeStep[];
 }
 export type TimerStatus = 'idle' | 'running' | 'paused' | 'completed';

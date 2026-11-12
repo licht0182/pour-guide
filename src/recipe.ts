@@ -116,13 +116,14 @@ export function validateRecipe(value: unknown): Recipe {
   const temperature = requireNumber(record.temperature, '물 온도', MIN_TEMPERATURE, MAX_TEMPERATURE);
   const grind = requireText(record.grind, '분쇄도', MAX_TEXT, true);
   const dripper = requireText(record.dripper, '드리퍼', MAX_TEXT, true);
+  const filter = requireText(record.filter === undefined ? '' : record.filter, '필터', MAX_TEXT, true).trim();
   const stepList = record.steps;
   if (!Array.isArray(stepList)) fail('단계 목록이 필요합니다.');
   if (stepList.length === 0) fail('단계는 1개 이상이어야 합니다.');
   if (stepList.length > MAX_STEPS) fail(`단계는 1개 이상 ${MAX_STEPS}개 이하여야 합니다.`);
   const seenIds = new Set<string>();
   const steps = stepList.map((step: unknown, index: number) => validateStep(step, index, seenIds));
-  return { id, name, description, coffee, temperature, grind, dripper, steps };
+  return { id, name, description, coffee, temperature, grind, dripper, ...(filter ? { filter } : {}), steps };
 }
 
 export function parseRecipe(json: string): Recipe {

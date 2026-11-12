@@ -10,6 +10,12 @@ describe('Drive backup validation and merge', () => {
   it('round trips the complete library and active recipe', () => {
     expect(decodeBackup(encodeBackup(library))).toEqual(library);
   });
+  it('preserves the optional filter through a backup round trip', () => {
+    const filtered = { ...PRESETS[0], filter: '하리오 V60' };
+    const restored = decodeBackup(encodeBackup({ recipes: [filtered, PRESETS[1]], activeId: filtered.id }));
+    expect(restored.recipes[0].filter).toBe('하리오 V60');
+    expect('filter' in restored.recipes[1]).toBe(false);
+  });
   it('rejects invalid, unsupported, oversized and partially corrupt backups', () => {
     for (const json of ['{', 'null', documentFor([]), documentFor(PRESETS, { version: 2 }), documentFor([...PRESETS, { id: 'bad' }]), documentFor([PRESETS[0], PRESETS[0]]), ' '.repeat(MAX_BACKUP_BYTES + 1)]) {
       expect(() => decodeBackup(json)).toThrow();

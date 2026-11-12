@@ -346,6 +346,7 @@ function App() {
                     </span>
                     <span className="recipe-select-meta">
                       {recipe.dripper} · {recipe.grind}
+                      {recipe.filter && ` · ${recipe.filter}`}
                     </span>
                   </button>
                   {library.recipes.length > 1 && (
@@ -439,6 +440,7 @@ function App() {
             <div className="recipe-chips" aria-label="추출 정보">
               <span>{active.dripper}</span>
               <span>{active.grind}</span>
+              {active.filter && <span>필터: {active.filter}</span>}
               <span>{active.temperature}℃</span>
             </div>
             <dl className="recipe-stats">

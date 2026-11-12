@@ -94,6 +94,20 @@ describe('validateRecipe', () => {
     expect(input).toEqual(snapshot);
   });
 
+  it('treats filter as optional text that trims and drops when empty', () => {
+    const legacy = validateRecipe(recipe());
+    expect('filter' in legacy).toBe(false);
+
+    expect(validateRecipe(recipe({ filter: '  하리오 V60  ' })).filter).toBe('하리오 V60');
+    expect('filter' in validateRecipe(recipe({ filter: '   ' }))).toBe(false);
+    expect(validateRecipe(recipe({ filter: '가'.repeat(80) })).filter).toHaveLength(80);
+  });
+
+  it('rejects a non-string or overlong filter', () => {
+    expect(() => validateRecipe({ ...recipe(), filter: 42 })).toThrow(/필터/);
+    expect(() => validateRecipe(recipe({ filter: '가'.repeat(81) }))).toThrow(/필터/);
+  });
+
   it('rejects unknown action and non-pour water together with out-of-range numbers', () => {
     expect(() =>
       validateRecipe({ ...recipe(), steps: [{ ...step('a'), action: 'boil' }] }),
