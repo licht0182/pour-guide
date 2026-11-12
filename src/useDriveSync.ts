@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Library } from './storage';
-import { authorize, Drive, DriveAuthError, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
+import { authorize, Drive, DriveAuthError, DriveNetworkError, mergeEntries, parseSnapshot, trackChanges } from './driveSync';
 import type { Entry } from './driveSync';
-import { disconnectedDrive } from './DriveConnectionStatus';
+import { disconnectedDrive, restoredDrive } from './DriveConnectionStatus';
 import type { DriveConnection } from './DriveConnectionStatus';
-import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
+import { clearDriveSession, driveWasEnabled, enableDriveSync, forgetDrive, loadDriveReceipt, loadDriveSession, markDriveSessionVerified, saveDriveReceipt, saveDriveSession, subscribeDriveSession } from './driveSession';
 import type { DriveReceipt } from './driveSession';
-import { entryKey, needsDriveReview, recipeKey, replaceDriveEntries } from './driveReview';
+import { entryKey, needsDriveReview, recipeKey, remoteRecipes, replaceDriveEntries } from './driveReview';
 import type { DriveReview } from './DriveReviewDialog';
 import { driveClientId } from './googleDrive';
 
@@ -24,7 +24,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
   const [authRevision, setAuthRevision] = useState(0);
   const [receipt, setReceipt] = useState<DriveReceipt | null>(() => loadDriveReceipt('sync'));
   const [busy, setBusy] = useState(false);
-  const [connection, setConnection] = useState<DriveConnection>(disconnectedDrive);
+  const [connection, setConnection] = useState<DriveConnection>(() => restoredDrive(restored));
   const [review, setReview] = useState<DriveReview | null>(null);
   const reviewRef = useRef<DriveReview | null>(null);
   const deferred = useRef('');
@@ -90,6 +90,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       const drive = new Drive(auth.current.token);
       const remote = await drive.read();
       if (!mounted.current || auth.current !== attempted) return;
+      markDriveSessionVerified();
       setConnection({ state: 'verified', checkedAt: Date.now() });
       if (paused.current) return;
       observe(); // Include edits made while the request was in flight.
@@ -111,7 +112,8 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
       const merged = resolution?.choice === 'remote' ? mergeEntries(remote)
         : resolution?.choice === 'local' ? replaceDriveEntries(latest.current.recipes, remote, entries.current!)
         : mergeEntries(remote, entries.current!);
-      const recipes = merged.flatMap(entry => entry.recipe ? [entry.recipe] : []);
+      // Merge is ID-sorted; the stored positions carry the user's own order.
+      const recipes = remoteRecipes(merged);
       if (!recipes.length) throw new Error('모든 레시피가 삭제되었습니다. 새 레시피를 추가한 뒤 다시 동기화해 주세요.');
       persist(merged);
       const next = { recipes, activeId: recipes.some(recipe => recipe.id === latest.current.activeId) ? latest.current.activeId : recipes[0].id };
@@ -139,7 +141,10 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
         setConnected(false);
       }
       if (mounted.current) {
-        setConnection(previous => ({ ...previous, state: 'error' }));
+        // A transport failure says nothing about the stored credential, so keep the
+        // connection it already proved. A server rejection is a real failure.
+        if (error instanceof DriveNetworkError) setConnection(restoredDrive(loadDriveSession('sync')));
+        else setConnection(previous => ({ ...previous, state: 'error' }));
         setStatus(error instanceof Error ? error.message : '동기화에 실패했습니다. 다시 시도해 주세요.');
       }
     } finally {
@@ -165,7 +170,7 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     setAuthRevision(value => value + 1);
     closeReview(); deferred.current = '';
     setReceipt(loadDriveReceipt('sync'));
-    setConnection(next ? { state: 'unverified', checkedAt: null } : disconnectedDrive);
+    setConnection(restoredDrive(next));
     setStatus(next ? '공유 Google 연결을 받았습니다.' : '공유 Google 연결이 해제되었거나 만료되었습니다. 다시 연결해 주세요.');
   }), []);
   useEffect(() => {
@@ -233,12 +238,14 @@ export function useDriveSync(library: Library, setLibrary: Dispatch<SetStateActi
     try {
       await new Drive(session.token).checkConnection();
       if (!mounted.current || auth.current !== session) return;
+      markDriveSessionVerified();
       setConnection({ state: 'verified', checkedAt: Date.now() });
       setStatus('연결 확인 완료 · 레시피를 변경하지 않고 Drive 응답을 확인했습니다.');
     } catch (error) {
       if (!mounted.current || auth.current !== session) return;
       if (error instanceof DriveAuthError) { auth.current = null; clearDriveSession('sync'); setConnected(false); }
-      setConnection(previous => ({ ...previous, state: 'error' }));
+      if (error instanceof DriveNetworkError) setConnection(restoredDrive(loadDriveSession('sync')));
+      else setConnection(previous => ({ ...previous, state: 'error' }));
       setStatus(error instanceof Error ? error.message : '연결 확인에 실패했습니다. 네트워크를 확인해 주세요.');
     } finally {
       working.current = false;

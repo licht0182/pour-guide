@@ -1,8 +1,8 @@
-import { parseRecipe } from './recipe';
+import { parseRecipe, validateRecipe } from './recipe';
 import type { Recipe } from './types';
-import { driveResponseError } from './driveErrors';
+import { DriveNetworkError, driveResponseError } from './driveErrors';
 import { connectDrive, loadGoogleIdentity } from './googleDrive';
-export { DriveAuthError } from './driveErrors';
+export { DriveAuthError, DriveNetworkError } from './driveErrors';
 
 export interface Entry { id: string; revision: string; recipe: Recipe | null }
 export interface Snapshot { version: 1; entries: Entry[] }
@@ -25,8 +25,16 @@ export function mergeEntries(...sets: Entry[][]): Entry[] {
   return [...result.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 export function trackChanges(entries: Entry[], recipes: Recipe[]): Entry[] {
-  const previous = new Map(entries.map(entry => [entry.id, entry]));
-  const current = new Map(recipes.map(recipe => [recipe.id, recipe]));
+  // Compare canonical shapes only: validation drops transport metadata and puts
+  // keys in a fixed order, so a re-read entry never looks edited.
+  const previous = new Map(entries.map(entry => [entry.id, {
+    id: entry.id,
+    revision: entry.revision,
+    recipe: entry.recipe === null ? null : validateRecipe(entry.recipe),
+  }]));
+  // The library array is the canonical order; each entry records its position so
+  // another device can restore it.
+  const current = new Map(recipes.map((recipe, index) => [recipe.id, validateRecipe({ ...recipe, order: index })]));
   const newest = Math.max(0, ...entries.map(entry => Number(entry.revision.slice(0, 16))));
   const revision = `${String(Math.max(Date.now(), newest + 1)).padStart(16, '0')}-${crypto.randomUUID()}`;
   for (const id of new Set([...previous.keys(), ...current.keys()])) {
@@ -40,7 +48,14 @@ const API = 'https://www.googleapis.com/drive/v3/files';
 export class Drive {
   constructor(private token: string) {}
   private async request(url: string, init?: RequestInit): Promise<Response> {
-    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000), headers: { ...init?.headers, Authorization: `Bearer ${this.token}` } });
+    let response: Response;
+    try {
+      response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000), headers: { ...init?.headers, Authorization: `Bearer ${this.token}` } });
+    } catch (error) {
+      if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) throw new DriveNetworkError('Drive 응답 시간이 초과되었습니다. 연결 상태는 유지되며 네트워크를 확인한 뒤 다시 시도해 주세요.');
+      if (error instanceof TypeError) throw new DriveNetworkError('Drive에 연결하지 못했습니다. 연결 상태는 유지되며 네트워크를 확인한 뒤 다시 시도해 주세요.');
+      throw error;
+    }
     if (!response.ok) throw await driveResponseError(response);
     return response;
   }

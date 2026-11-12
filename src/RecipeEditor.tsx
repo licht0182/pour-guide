@@ -14,6 +14,7 @@ import {
 
 interface RecipeEditorProps {
   recipe: Recipe;
+  categories: string[];
   onSave: (recipe: Recipe) => void;
   onCancel: () => void;
 }
@@ -26,6 +27,9 @@ interface DraftRecipe {
   grind: string;
   dripper: string;
   filter: string;
+  category: string;
+  categoryMode: 'existing' | 'new';
+  newCategory: string;
 }
 
 interface DraftStep {
@@ -49,6 +53,8 @@ interface StepIssues {
 const ACTIONS: StepAction[] = ['pour', 'wait', 'swirl', 'stir'];
 const MAX_STEPS = 100;
 const MAX_NAME = 80;
+const MAX_CATEGORY = 80;
+const CATEGORY_CHOICE_PREFIX = 'category:';
 const MAX_DESCRIPTION = 400;
 const MAX_TEXT = 80;
 const MAX_NOTE = 300;
@@ -63,6 +69,11 @@ const MAX_FLOW_RATE = 100;
 
 function toNumber(text: string): number {
   return text.trim() === '' ? Number.NaN : Number(text);
+}
+
+/** Category labels are trimmed and internal whitespace collapsed. */
+function normalizeCategory(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
 }
 
 function numberText(value: number): string {
@@ -132,6 +143,13 @@ function collectMessages(draft: DraftRecipe, steps: DraftStep[]): { messages: st
   if (!draft.dripper.trim()) messages.push('드리퍼를 입력해 주세요.');
   else if (draft.dripper.length > MAX_TEXT) messages.push(`드리퍼는 ${MAX_TEXT}자 이하여야 합니다.`);
   if (draft.filter.length > MAX_TEXT) messages.push(`필터는 ${MAX_TEXT}자 이하여야 합니다.`);
+  if (draft.categoryMode === 'new') {
+    const newCategory = normalizeCategory(draft.newCategory);
+    if (!newCategory) messages.push('새 분류 이름을 입력해 주세요.');
+    else if (newCategory.length > MAX_CATEGORY) {
+      messages.push(`새 분류 이름은 ${MAX_CATEGORY}자 이하여야 합니다.`);
+    }
+  }
 
   if (steps.length === 0) messages.push('단계를 1개 이상 추가해 주세요.');
   if (steps.length > MAX_STEPS) messages.push(`단계는 ${MAX_STEPS}개 이하로 작성해 주세요.`);
@@ -180,7 +198,15 @@ function collectMessages(draft: DraftRecipe, steps: DraftStep[]): { messages: st
   return { messages, badStepIds };
 }
 
-function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[]): Recipe {
+function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[], categories: string[]): Recipe {
+  let category = draft.category;
+  if (draft.categoryMode === 'new') {
+    const normalized = normalizeCategory(draft.newCategory);
+    const existing = [recipe.category ?? '', ...categories].find(
+      value => value !== '' && normalizeCategory(value) === normalized,
+    );
+    category = existing ?? normalized;
+  }
   return {
     id: recipe.id,
     name: draft.name,
@@ -190,6 +216,7 @@ function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[]): Re
     grind: draft.grind,
     dripper: draft.dripper,
     filter: draft.filter,
+    ...(category ? { category } : {}),
     steps: steps.map(step => ({
       id: step.id,
       title: step.title,
@@ -202,7 +229,7 @@ function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[]): Re
   };
 }
 
-export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorProps) {
+export default function RecipeEditor({ recipe, categories, onSave, onCancel }: RecipeEditorProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -215,6 +242,9 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
     grind: recipe.grind,
     dripper: recipe.dripper,
     filter: recipe.filter ?? '',
+    category: recipe.category ?? '',
+    categoryMode: 'existing',
+    newCategory: '',
   }));
   const [steps, setSteps] = useState<DraftStep[]>(() =>
     recipe.steps.map(step => ({
@@ -253,8 +283,23 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
     };
   }, []);
 
-  const current = buildRecipe(recipe, draft, steps);
+  const current = buildRecipe(recipe, draft, steps, categories);
   const { messages, badStepIds } = collectMessages(draft, steps);
+  const newCategoryName = normalizeCategory(draft.newCategory);
+  const categoryMissing = draft.categoryMode === 'new' && !newCategoryName;
+  const categoryTooLong = draft.categoryMode === 'new' && newCategoryName.length > MAX_CATEGORY;
+  const categoryChoices = [
+    ...new Set([
+      ...(recipe.category ? [recipe.category] : []),
+      ...categories.filter(category => category !== ''),
+    ]),
+  ];
+  const categoryChoiceIndex = categoryChoices.indexOf(draft.category);
+  const categorySelectValue = draft.categoryMode === 'new'
+    ? 'new'
+    : categoryChoiceIndex >= 0
+      ? `${CATEGORY_CHOICE_PREFIX}${categoryChoiceIndex}`
+      : 'none';
   const coffee = toNumber(draft.coffee);
   const temperature = toNumber(draft.temperature);
   const nameMissing = !draft.name.trim();
@@ -573,6 +618,70 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                     </span>
                   )}
                 </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor={`${editorId}-category`}>분류</label>
+                  <select
+                    id={`${editorId}-category`}
+                    className="field-input"
+                    value={categorySelectValue}
+                    aria-describedby={`${editorId}-category-hint`}
+                    onChange={event => {
+                      const value = event.target.value;
+                      if (value === 'new') {
+                        patchDraft({ categoryMode: 'new' });
+                      } else if (value === 'none') {
+                        patchDraft({ category: '', categoryMode: 'existing', newCategory: '' });
+                      } else {
+                        const name = categoryChoices[Number(value.slice(CATEGORY_CHOICE_PREFIX.length))];
+                        if (name !== undefined) {
+                          patchDraft({ category: name, categoryMode: 'existing', newCategory: '' });
+                        }
+                      }
+                    }}
+                  >
+                    <option value="none">미분류</option>
+                    {categoryChoices.map((category, index) => (
+                      <option key={category} value={`${CATEGORY_CHOICE_PREFIX}${index}`}>
+                        {category}
+                      </option>
+                    ))}
+                    <option value="new">새 분류 만들기</option>
+                  </select>
+                  <span id={`${editorId}-category-hint`} className="field-hint">
+                    목록에 없으면 새 분류 만들기를 선택하세요.
+                  </span>
+                </div>
+
+                {draft.categoryMode === 'new' && (
+                  <div className="field">
+                    <label className="field-label" htmlFor={`${editorId}-new-category`}>새 분류 이름</label>
+                    <input
+                      id={`${editorId}-new-category`}
+                      className="field-input"
+                      value={draft.newCategory}
+                      placeholder="예: 아이스"
+                      aria-invalid={attempted && (categoryMissing || categoryTooLong) ? true : undefined}
+                      aria-describedby={
+                        attempted && (categoryMissing || categoryTooLong)
+                          ? `${editorId}-category-error`
+                          : `${editorId}-new-category-hint`
+                      }
+                      onChange={event => patchDraft({ newCategory: event.target.value })}
+                    />
+                    {attempted && (categoryMissing || categoryTooLong) ? (
+                      <span id={`${editorId}-category-error`} className="field-error">
+                        {categoryMissing
+                          ? '새 분류 이름을 입력해 주세요.'
+                          : `새 분류 이름은 ${MAX_CATEGORY}자 이하여야 합니다.`}
+                      </span>
+                    ) : (
+                      <span id={`${editorId}-new-category-hint`} className="field-hint">
+                        같은 이름의 분류가 있으면 기존 분류를 사용합니다.
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </section>
 

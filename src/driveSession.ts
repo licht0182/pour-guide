@@ -1,7 +1,7 @@
 import { driveClientId } from './googleDrive';
 
 export type DriveMode = 'sync' | 'backup';
-export interface DriveSession { token: string; expiresAt: number }
+export interface DriveSession { token: string; expiresAt: number; verifiedAt?: number }
 export interface DriveReceipt { confirmedAt: number; recipeCount: number }
 const key = (mode: DriveMode, suffix: string) => `pour-guide.drive.${mode}.${suffix}.v1`;
 const SESSION_KEY = 'pour-guide.drive.session.v2';
@@ -59,7 +59,8 @@ export function loadDriveSession(_mode: DriveMode): DriveSession | null {
     for (const name of [SESSION_KEY, ...modes.map(mode => key(mode, 'session'))]) {
       const data = read(item.storage, name);
       if (data && data.clientId === driveClientId && typeof data.token === 'string' && data.token.length > 0 && typeof data.expiresAt === 'number' && Number.isFinite(data.expiresAt) && data.expiresAt > Date.now()) {
-        (name === SESSION_KEY ? shared : legacy).push({ token: data.token, expiresAt: data.expiresAt, savedAt: typeof data.savedAt === 'number' && Number.isFinite(data.savedAt) ? data.savedAt : 0 });
+        const verifiedAt = typeof data.verifiedAt === 'number' && Number.isFinite(data.verifiedAt) && data.verifiedAt > 0 && data.verifiedAt <= Date.now() ? data.verifiedAt : undefined;
+        (name === SESSION_KEY ? shared : legacy).push({ token: data.token, expiresAt: data.expiresAt, savedAt: typeof data.savedAt === 'number' && Number.isFinite(data.savedAt) ? data.savedAt : 0, ...(verifiedAt === undefined ? {} : { verifiedAt }) });
       }
     }
   }
@@ -77,11 +78,24 @@ export function loadDriveSession(_mode: DriveMode): DriveSession | null {
   }
   write(SESSION_KEY, JSON.stringify({ ...saved, clientId: driveClientId }));
   for (const mode of modes) write(key(mode, 'session'), null);
-  return { token: saved.token, expiresAt: saved.expiresAt };
+  return saved.verifiedAt === undefined
+    ? { token: saved.token, expiresAt: saved.expiresAt }
+    : { token: saved.token, expiresAt: saved.expiresAt, verifiedAt: saved.verifiedAt };
+}
+
+// Record a real Drive response against the stored credential so a reload can
+// show the connection it already proved instead of falling back to "미연결".
+export function markDriveSessionVerified(): void {
+  const verifiedAt = Date.now();
+  for (const item of stores()) {
+    const data = read(item.storage, SESSION_KEY);
+    if (!data || data.clientId !== driveClientId || typeof data.token !== 'string' || typeof data.expiresAt !== 'number' || data.expiresAt <= verifiedAt) continue;
+    try { item.storage.setItem(SESSION_KEY, JSON.stringify({ ...data, verifiedAt })); } catch { /* Try the other storage independently. */ }
+  }
 }
 
 export function saveDriveSession(mode: DriveMode, session: DriveSession): boolean {
-  const durable = write(SESSION_KEY, JSON.stringify({ ...session, clientId: driveClientId, savedAt: Date.now() }));
+  const durable = write(SESSION_KEY, JSON.stringify({ token: session.token, expiresAt: session.expiresAt, clientId: driveClientId, savedAt: Date.now() }));
   for (const entry of modes) {
     write(key(entry, 'session'), null);
     write(key(entry, 'receipt'), null);

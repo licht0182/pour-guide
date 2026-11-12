@@ -1,6 +1,6 @@
 import { decodeBackup, encodeBackup } from './driveBackup';
 import type { Library } from './storage';
-import { driveResponseError } from './driveErrors';
+import { DriveNetworkError, driveResponseError } from './driveErrors';
 export { DriveAuthError } from './driveErrors';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
@@ -86,7 +86,8 @@ async function request(token: string, url: string, options: RequestInit = {}): P
     // Consume the body while the timeout is still active.
     return new Response(await response.blob(), { status: response.status, headers: response.headers });
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('Drive 응답 시간이 초과되었습니다. 다시 시도해 주세요.');
+    if (controller.signal.aborted) throw new DriveNetworkError('Drive 응답 시간이 초과되었습니다. 연결 상태는 유지되며 네트워크를 확인한 뒤 다시 시도해 주세요.');
+    if (error instanceof TypeError) throw new DriveNetworkError('Drive에 연결하지 못했습니다. 연결 상태는 유지되며 네트워크를 확인한 뒤 다시 시도해 주세요.');
     throw error;
   } finally { window.clearTimeout(timeout); }
 }

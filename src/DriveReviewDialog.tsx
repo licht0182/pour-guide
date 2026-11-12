@@ -11,7 +11,7 @@ function Preview({ recipe }: { recipe?: Recipe }) {
   return <div>
     <strong>{recipe.name}</strong>
     <p>{recipe.coffee}g · {totalWater(recipe)}g · {formatTime(totalDuration(recipe))} · {recipe.temperature}℃</p>
-    <p>{recipe.dripper} · {recipe.grind}{recipe.filter ? ` · ${recipe.filter}` : ''}</p>
+    <p>{recipe.category ? `${recipe.category} · ` : ''}{recipe.dripper} · {recipe.grind}{recipe.filter ? ` · ${recipe.filter}` : ''}</p>
     {recipe.description && <p>{recipe.description}</p>}
     <ol>{recipe.steps.map(step => <li key={step.id}>{step.title} · {ACTION_LABELS[step.action]} · {step.duration}초 · 추가 {step.water}g{step.flowRate !== null ? ` · ${step.flowRate}g/s` : ''}{step.note ? ` — ${step.note}` : ''}</li>)}</ol>
   </div>;

@@ -4,6 +4,8 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronDown,
+  ChevronUp,
   Download,
   Droplets,
   Github,
@@ -37,6 +39,7 @@ import DriveSaveStatus from './DriveSaveStatus';
 import DriveReviewDialog from './DriveReviewDialog';
 import { mergeBackup } from './driveBackup';
 import { downloadRecipe, loadLibrary, readRecipeFile, saveLibrary } from './storage';
+import { filterRecipes, moveRecipe } from './recipeOrganization';
 import type { Library } from './storage';
 import { useDriveSync } from './useDriveSync';
 import { useAppUpdate } from './useAppUpdate';
@@ -116,12 +119,22 @@ function App() {
   const [flash, setFlash] = useState('');
   const [sidebarNotice, setSidebarNotice] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [driveBusy, setDriveBusy] = useState(false);
   const theme = useTheme();
   const libraryToggle = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const active = library.recipes.find(recipe => recipe.id === library.activeId) ?? library.recipes[0];
+  const categories = [...new Set(library.recipes.flatMap(recipe => recipe.category ? [recipe.category] : []))];
+  const hasUncategorized = library.recipes.some(recipe => !recipe.category);
+  const categoryKey = categories.join('\n');
+  // A category disappears when its last recipe is deleted or recategorized.
+  useEffect(() => {
+    if (categoryFilter === null) return;
+    if (categoryFilter === '' ? !hasUncategorized : !categories.includes(categoryFilter)) setCategoryFilter(null);
+  }, [categoryFilter, categoryKey, hasUncategorized]);
+  const visibleRecipes = filterRecipes(library.recipes, categoryFilter);
   const brew = useBrewTimer(active, sound);
   const schedule = getStepSchedule(active);
   const step = active.steps[brew.snapshot.stepIndex] ?? active.steps[0];
@@ -329,8 +342,42 @@ function App() {
             <p>오늘 내릴 한 잔을 골라보세요.</p>
           </div>
 
+          {categories.length > 0 && (
+            <div className="category-filter" role="group" aria-label="분류로 레시피 보기">
+              <button
+                type="button"
+                className={`category-chip${categoryFilter === null ? ' is-active' : ''}`}
+                aria-pressed={categoryFilter === null}
+                onClick={() => setCategoryFilter(null)}
+              >
+                전체
+              </button>
+              {categories.map(category => (
+                <button
+                  key={category}
+                  type="button"
+                  className={`category-chip${categoryFilter === category ? ' is-active' : ''}`}
+                  aria-pressed={categoryFilter === category}
+                  onClick={() => setCategoryFilter(category)}
+                >
+                  {category}
+                </button>
+              ))}
+              {hasUncategorized && (
+                <button
+                  type="button"
+                  className={`category-chip${categoryFilter === '' ? ' is-active' : ''}`}
+                  aria-pressed={categoryFilter === ''}
+                  onClick={() => setCategoryFilter('')}
+                >
+                  미분류
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="library-list">
-            {library.recipes.map(recipe => {
+            {visibleRecipes.map((recipe, index) => {
               const selected = recipe.id === active.id;
               return (
                 <div className={`recipe-item${selected ? ' is-active' : ''}`} key={recipe.id}>
@@ -341,6 +388,7 @@ function App() {
                     onClick={() => selectRecipe(recipe.id)}
                   >
                     <span className="recipe-select-name">{recipe.name}</span>
+                    {recipe.category && <span className="recipe-category">{recipe.category}</span>}
                     <span className="recipe-select-meta">
                       {recipe.coffee}g · {totalWater(recipe)}g · {formatTime(totalDuration(recipe))}
                     </span>
@@ -349,24 +397,46 @@ function App() {
                       {recipe.filter && ` · ${recipe.filter}`}
                     </span>
                   </button>
-                  {library.recipes.length > 1 && (
+                  <div className="recipe-item-actions">
                     <button
-                      className={`recipe-delete${pendingDelete === recipe.id ? ' is-armed' : ''}`}
+                      className="recipe-move"
                       type="button"
-                      title={pendingDelete === recipe.id ? '한 번 더 누르면 삭제합니다' : '레시피 삭제'}
-                      aria-label={
-                        pendingDelete === recipe.id
-                          ? `${recipe.name} 레시피를 정말 삭제합니다`
-                          : `${recipe.name} 레시피 삭제`
-                      }
-                      onClick={() => {
-                        if (pendingDelete === recipe.id) deleteRecipe(recipe.id);
-                        else setPendingDelete(recipe.id);
-                      }}
+                      disabled={index === 0}
+                      title="위로 이동"
+                      aria-label={`${recipe.name} 레시피를 위로 이동`}
+                      onClick={() => setLibrary(previous => ({ ...previous, recipes: moveRecipe(previous.recipes, recipe.id, -1, categoryFilter) }))}
                     >
-                      {pendingDelete === recipe.id ? <span>확인</span> : <Trash2 size={15} />}
+                      <ChevronUp size={16} aria-hidden="true" />
                     </button>
-                  )}
+                    <button
+                      className="recipe-move"
+                      type="button"
+                      disabled={index === visibleRecipes.length - 1}
+                      title="아래로 이동"
+                      aria-label={`${recipe.name} 레시피를 아래로 이동`}
+                      onClick={() => setLibrary(previous => ({ ...previous, recipes: moveRecipe(previous.recipes, recipe.id, 1, categoryFilter) }))}
+                    >
+                      <ChevronDown size={16} aria-hidden="true" />
+                    </button>
+                    {library.recipes.length > 1 && (
+                      <button
+                        className={`recipe-delete${pendingDelete === recipe.id ? ' is-armed' : ''}`}
+                        type="button"
+                        title={pendingDelete === recipe.id ? '한 번 더 누르면 삭제합니다' : '레시피 삭제'}
+                        aria-label={
+                          pendingDelete === recipe.id
+                            ? `${recipe.name} 레시피를 정말 삭제합니다`
+                            : `${recipe.name} 레시피 삭제`
+                        }
+                        onClick={() => {
+                          if (pendingDelete === recipe.id) deleteRecipe(recipe.id);
+                          else setPendingDelete(recipe.id);
+                        }}
+                      >
+                        {pendingDelete === recipe.id ? <span>확인</span> : <Trash2 size={15} />}
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -438,6 +508,7 @@ function App() {
               <p className="recipe-description">{active.description}</p>
             )}
             <div className="recipe-chips" aria-label="추출 정보">
+              {active.category && <span>분류: {active.category}</span>}
               <span>{active.dripper}</span>
               <span>{active.grind}</span>
               {active.filter && <span>필터: {active.filter}</span>}
@@ -699,6 +770,7 @@ function App() {
       {editing && (
         <RecipeEditor
           recipe={editing}
+          categories={categories}
           onSave={saveEditedRecipe}
           onCancel={() => setEditing(null)}
         />

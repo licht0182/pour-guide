@@ -1,4 +1,4 @@
-import { validateRecipe } from './recipe';
+import { validateRecipe, withoutRecipeOrder } from './recipe';
 import type { Library } from './storage';
 import type { Recipe } from './types';
 
@@ -19,14 +19,17 @@ export function decodeBackup(json: string): Library {
   if (!value || value.format !== 'pour-guide' || value.version !== 1 || !Array.isArray(value.recipes) || !value.recipes.length || value.recipes.length > 1000) {
     throw new Error('지원하지 않는 Pour Guide 백업입니다.');
   }
-  const recipes: Recipe[] = value.recipes.map((recipe: unknown) => validateRecipe(recipe));
+  // The array order is preserved by the JSON document itself, so a stale index
+  // is dropped rather than imported into local state.
+  const recipes: Recipe[] = value.recipes.map((recipe: unknown) => withoutRecipeOrder(validateRecipe(recipe)));
   if (new Set(recipes.map(recipe => recipe.id)).size !== recipes.length) throw new Error('백업에 중복된 레시피 ID가 있습니다.');
   return { recipes, activeId: recipes.some(recipe => recipe.id === value.activeId) ? value.activeId : recipes[0].id };
 }
 
-// Compare validated content without the ID so a conflicting copy is not added twice.
+// Compare validated content without the ID or transport order so a conflicting
+// copy is not added twice.
 function content(recipe: Recipe): string {
-  const { id: _id, ...rest } = validateRecipe(recipe);
+  const { id: _id, ...rest } = withoutRecipeOrder(validateRecipe(recipe));
   return JSON.stringify(rest);
 }
 
