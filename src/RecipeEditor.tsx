@@ -25,6 +25,7 @@ interface DraftRecipe {
   temperature: string;
   grind: string;
   dripper: string;
+  filter: string;
 }
 
 interface DraftStep {
@@ -130,6 +131,7 @@ function collectMessages(draft: DraftRecipe, steps: DraftStep[]): { messages: st
   else if (draft.grind.length > MAX_TEXT) messages.push(`분쇄도는 ${MAX_TEXT}자 이하여야 합니다.`);
   if (!draft.dripper.trim()) messages.push('드리퍼를 입력해 주세요.');
   else if (draft.dripper.length > MAX_TEXT) messages.push(`드리퍼는 ${MAX_TEXT}자 이하여야 합니다.`);
+  if (draft.filter.length > MAX_TEXT) messages.push(`필터는 ${MAX_TEXT}자 이하여야 합니다.`);
 
   if (steps.length === 0) messages.push('단계를 1개 이상 추가해 주세요.');
   if (steps.length > MAX_STEPS) messages.push(`단계는 ${MAX_STEPS}개 이하로 작성해 주세요.`);
@@ -187,6 +189,7 @@ function buildRecipe(recipe: Recipe, draft: DraftRecipe, steps: DraftStep[]): Re
     temperature: toNumber(draft.temperature),
     grind: draft.grind,
     dripper: draft.dripper,
+    filter: draft.filter,
     steps: steps.map(step => ({
       id: step.id,
       title: step.title,
@@ -211,6 +214,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
     temperature: numberText(recipe.temperature),
     grind: recipe.grind,
     dripper: recipe.dripper,
+    filter: recipe.filter ?? '',
   }));
   const [steps, setSteps] = useState<DraftStep[]>(() =>
     recipe.steps.map(step => ({
@@ -263,6 +267,7 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
   const grindTooLong = draft.grind.length > MAX_TEXT;
   const dripperMissing = !draft.dripper.trim();
   const dripperTooLong = draft.dripper.length > MAX_TEXT;
+  const filterTooLong = draft.filter.length > MAX_TEXT;
   const displayRecipe: Recipe = {
     ...current,
     steps: current.steps.map(step => ({
@@ -547,6 +552,24 @@ export default function RecipeEditor({ recipe, onSave, onCancel }: RecipeEditorP
                   {attempted && (dripperMissing || dripperTooLong) && (
                     <span id={`${editorId}-dripper-error`} className="field-error">
                       {dripperMissing ? '드리퍼를 입력해 주세요.' : `드리퍼는 ${MAX_TEXT}자 이하여야 합니다.`}
+                    </span>
+                  )}
+                </div>
+
+                <div className="field field-full">
+                  <label className="field-label" htmlFor={`${editorId}-filter`}>필터 (선택)</label>
+                  <input
+                    id={`${editorId}-filter`}
+                    className="field-input"
+                    value={draft.filter}
+                    placeholder="예: 하리오 V60 종이 필터"
+                    aria-invalid={attempted && filterTooLong ? true : undefined}
+                    aria-describedby={attempted && filterTooLong ? `${editorId}-filter-error` : undefined}
+                    onChange={event => patchDraft({ filter: event.target.value })}
+                  />
+                  {attempted && filterTooLong && (
+                    <span id={`${editorId}-filter-error`} className="field-error">
+                      필터는 {MAX_TEXT}자 이하여야 합니다.
                     </span>
                   )}
                 </div>
